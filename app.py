@@ -203,7 +203,7 @@ if st.session_state.tab == "Forecast":
     # ── Mode selector ──────────────────────────────────────────────────────
     st.markdown('<div class="sec-label">Mode Prediksi</div>', unsafe_allow_html=True)
     mode = st.radio(
-        "mode", ["🔮  Smart Mode", "🛠  Manual Mode"],
+        "mode", ["Smart Mode", "Manual Mode"],
         horizontal=True, label_visibility="collapsed"
     )
 
