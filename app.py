@@ -13,12 +13,13 @@ import pandas as pd
 import streamlit as st
 
 from data.loader import (
-    MAX_UPLOAD_BYTES,
     engineer_features,
     filter_data,
     get_stations,
     load_csv,
 )
+
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB
 from models.trainer import checksum, is_trained, predict, train
 from utils.charts import (
     heatmap_monthly,
