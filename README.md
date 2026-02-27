@@ -20,7 +20,7 @@
 ## 🌧️ Try It Live
 
 > **[nusantara-rainforecaster.streamlit.app](https://nusantara-rainforecaster.streamlit.app/)**
-> No install needed — runs fully in your browser.
+> No install needed, runs fully in your browser.
 
 ---
 
