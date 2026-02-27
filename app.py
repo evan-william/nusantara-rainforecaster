@@ -255,27 +255,31 @@ if st.session_state.tab == "Forecast":
 
     else:
         # ── MANUAL MODE ───────────────────────────────────────────────────
-        with st.form("manual_form"):
-            st.markdown('<div class="sec-label">Kondisi Cuaca</div>', unsafe_allow_html=True)
-            c1, c2, c3 = st.columns(3)
-            target_date = c1.date_input("Tanggal", value=today + datetime.timedelta(days=1))
-            tavg = c2.number_input("Suhu Rata-rata (°C)", value=27.0, min_value=-5.0, max_value=50.0)
-            tn   = c2.number_input("Suhu Min (°C)",       value=22.0, min_value=-5.0, max_value=45.0)
-            tx   = c3.number_input("Suhu Max (°C)",       value=32.0, min_value=-5.0, max_value=55.0)
-            rh   = c3.number_input("Kelembapan (%)",      value=82.0, min_value=0.0,  max_value=100.0)
+        # FIX 1: Removed st.form wrapper — forms cannot contain st.stop() after
+        # submit and cause "Missing Submit Button" warnings in certain Streamlit
+        # versions. Using individual keys on every widget instead.
+        st.markdown('<div class="sec-label">Kondisi Cuaca</div>', unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        target_date = c1.date_input("Tanggal",               value=today + datetime.timedelta(days=1), key="m_date")
+        tavg = c2.number_input("Suhu Rata-rata (°C)",        value=27.0, min_value=-5.0, max_value=50.0, key="m_tavg")
+        tn   = c2.number_input("Suhu Min (°C)",              value=22.0, min_value=-5.0, max_value=45.0, key="m_tn")
+        tx   = c3.number_input("Suhu Max (°C)",              value=32.0, min_value=-5.0, max_value=55.0, key="m_tx")
+        rh   = c3.number_input("Kelembapan (%)",             value=82.0, min_value=0.0,  max_value=100.0, key="m_rh")
 
-            c4, c5, c6 = st.columns(3)
-            ss     = c4.number_input("Durasi Matahari (h)",    value=5.0)
-            ff_x   = c5.number_input("Angin Maks (m/s)",       value=6.0)
-            ff_avg = c6.number_input("Angin Rata-rata (m/s)",  value=4.0)
+        c4, c5, c6 = st.columns(3)
+        ss     = c4.number_input("Durasi Matahari (h)",      value=5.0,  key="m_ss")
+        ff_x   = c5.number_input("Angin Maks (m/s)",         value=6.0,  key="m_ffx")
+        ff_avg = c6.number_input("Angin Rata-rata (m/s)",    value=4.0,  key="m_ffavg")
 
-            st.markdown('<div class="sec-label">Rata-rata 7 Hari Terakhir</div>', unsafe_allow_html=True)
-            r1, r2, r3 = st.columns(3)
-            rr_r   = r1.number_input("Curah Hujan (mm)", value=5.0,  min_value=0.0)
-            tavg_r = r2.number_input("Suhu (°C)",        value=27.0, min_value=-5.0, max_value=50.0)
-            rh_r   = r3.number_input("Kelembapan (%)",   value=82.0, min_value=0.0,  max_value=100.0)
+        st.markdown('<div class="sec-label">Rata-rata 7 Hari Terakhir</div>', unsafe_allow_html=True)
+        r1, r2, r3 = st.columns(3)
+        rr_r   = r1.number_input("Curah Hujan (mm)",         value=5.0,  min_value=0.0,               key="m_rrr")
+        tavg_r = r2.number_input("Suhu 7 Hari (°C)",         value=27.0, min_value=-5.0, max_value=50.0, key="m_tavgr")
+        # FIX 2: Renamed label "Kelembapan 7 Hari (%)" to avoid duplicate element ID
+        # with the "Kelembapan (%)" widget above (same label = same auto-generated ID)
+        rh_r   = r3.number_input("Kelembapan 7 Hari (%)",   value=82.0, min_value=0.0,  max_value=100.0, key="m_rhr")
 
-            go = st.form_submit_button("Prediksi Sekarang →", type="primary", use_container_width=True)
+        go = st.button("Prediksi Sekarang →", type="primary", use_container_width=True, key="m_go")
 
         if not go:
             st.stop()
