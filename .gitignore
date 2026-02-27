@@ -20,12 +20,6 @@ ENV/
 # Models — trained weights are not committed; regenerate with run.sh
 models/*.pkl
 
-# Data — large/generated files
-data/sample_weather.csv
-data/*.csv
-!data/generate_sample.py
-!data/__init__.py
-
 # OS
 .DS_Store
 Thumbs.db
