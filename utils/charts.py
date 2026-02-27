@@ -1,147 +1,143 @@
 """
-Reusable Plotly chart builders.
-All functions return a plotly Figure — Streamlit renders via st.plotly_chart().
+Data loading and preprocessing.
+Handles the real BMKG format: DD-MM-YYYY dates, sparse wind columns, null RR.
 """
 
+import io
+import logging
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 
-PALETTE = px.colors.qualitative.Plotly
+logger = logging.getLogger(__name__)
 
-_LAYOUT = dict(
-    paper_bgcolor="#0E1117",
-    plot_bgcolor="#0E1117",
-    font_color="#FAFAFA",
-    margin=dict(l=20, r=20, t=40, b=20),
-)
+REQUIRED_COLUMNS = {"date", "Tn", "Tx", "Tavg", "RH_avg", "RR", "station_id"}
+NUMERIC_COLUMNS = ["Tn", "Tx", "Tavg", "RH_avg", "RR", "ss", "ff_x", "ddd_x", "ff_avg"]
 
+VALID_RANGES = {
+    "Tn":     (-5,  45),
+    "Tx":     (-5,  55),
+    "Tavg":   (-5,  50),
+    "RH_avg": (0,   100),
+    "RR":     (0,   900),
+    "ss":     (0,   24),
+    "ff_x":   (0,   80),
+    "ff_avg": (0,   60),
+    "ddd_x":  (0,   360),
+}
 
-def rainfall_timeseries(df: pd.DataFrame, station_id: str | None = None) -> go.Figure:
-    """Daily rainfall bar chart, optionally filtered by station."""
-    data = df.copy()
-    if station_id:
-        data = data[data["station_id"] == station_id]
-
-    if data.empty:
-        return _empty_fig("No data for selected filters")
-
-    daily = data.groupby("date")["RR"].mean().reset_index()
-    fig = px.bar(
-        daily, x="date", y="RR",
-        labels={"RR": "Rainfall (mm)", "date": ""},
-        title="Daily Average Rainfall",
-        color="RR",
-        color_continuous_scale="Blues",
-    )
-    fig.update_layout(**_LAYOUT)
-    return fig
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 
-def temperature_trend(df: pd.DataFrame) -> go.Figure:
-    """Min / avg / max temperature band over time."""
-    if df.empty:
-        return _empty_fig("No data")
+def load_csv(source) -> pd.DataFrame:
+    """Load from file path, Path, or file-like. Raises ValueError on bad structure."""
+    try:
+        if isinstance(source, (str, Path)):
+            raw = pd.read_csv(source, low_memory=False)
+        elif hasattr(source, "read"):
+            content = source.read()
+            if isinstance(content, bytes):
+                content = content.decode("utf-8", errors="replace")
+            raw = pd.read_csv(io.StringIO(content), low_memory=False)
+        else:
+            raise ValueError("source must be a file path or file-like object")
+    except Exception as exc:
+        raise ValueError(f"Cannot read CSV: {exc}") from exc
 
-    monthly = df.groupby(df["date"].dt.to_period("M")).agg(
-        Tn=("Tn", "mean"),
-        Tavg=("Tavg", "mean"),
-        Tx=("Tx", "mean"),
-    ).reset_index()
-    monthly["date"] = monthly["date"].dt.to_timestamp()
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=monthly["date"], y=monthly["Tx"],
-        name="Tx (max)", line=dict(color="#FF5722", width=1.5),
-    ))
-    fig.add_trace(go.Scatter(
-        x=monthly["date"], y=monthly["Tavg"],
-        name="Tavg (avg)", line=dict(color="#4A90D9", width=2),
-        fill="tonexty", fillcolor="rgba(74,144,217,0.1)",
-    ))
-    fig.add_trace(go.Scatter(
-        x=monthly["date"], y=monthly["Tn"],
-        name="Tn (min)", line=dict(color="#26C6DA", width=1.5),
-        fill="tonexty", fillcolor="rgba(38,198,218,0.08)",
-    ))
-    fig.update_layout(title="Monthly Temperature Range (°C)", **_LAYOUT)
-    return fig
+    return _clean(raw)
 
 
-def humidity_scatter(df: pd.DataFrame) -> go.Figure:
-    """Scatter: humidity vs rainfall, coloured by month."""
-    if df.empty:
-        return _empty_fig("No data")
-
-    sample = df.dropna(subset=["RH_avg", "RR"]).sample(min(2000, len(df)), random_state=42)
-    fig = px.scatter(
-        sample, x="RH_avg", y="RR",
-        color="month",
-        labels={"RH_avg": "Humidity (%)", "RR": "Rainfall (mm)", "month": "Month"},
-        title="Humidity vs Rainfall",
-        opacity=0.6,
-        color_continuous_scale="Viridis",
-    )
-    fig.update_layout(**_LAYOUT)
-    return fig
-
-
-def monthly_rain_heatmap(df: pd.DataFrame) -> go.Figure:
-    """Year × Month heatmap of average rainfall."""
-    if df.empty:
-        return _empty_fig("No data")
-
+def _clean(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["year"] = df["date"].dt.year
-    pivot = df.pivot_table(values="RR", index="year", columns="month", aggfunc="mean")
+    df.columns = df.columns.str.strip()
 
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=pivot.values,
-            x=[
-                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-            ],
-            y=pivot.index.tolist(),
-            colorscale="Blues",
-            showscale=True,
-        )
+    missing = REQUIRED_COLUMNS - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+
+    # Try multiple date formats — BMKG uses DD-MM-YYYY
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+        parsed = pd.to_datetime(df["date"], format=fmt, errors="coerce")
+        if parsed.notna().sum() > len(df) * 0.8:
+            df["date"] = parsed
+            break
+    else:
+        df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
+
+    dropped = df["date"].isna().sum()
+    if dropped:
+        logger.warning("Dropped %d rows with unparseable dates", dropped)
+    df = df.dropna(subset=["date"])
+
+    # Coerce numerics
+    for col in NUMERIC_COLUMNS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Clamp out-of-range values to NaN
+    for col, (lo, hi) in VALID_RANGES.items():
+        if col in df.columns:
+            mask = (df[col] < lo) | (df[col] > hi)
+            if mask.any():
+                logger.warning("Clamped %d out-of-range in '%s'", mask.sum(), col)
+            df.loc[mask, col] = np.nan
+
+    # Sanitise station_id
+    df["station_id"] = (
+        df["station_id"].astype(str).str.strip()
+        .str.replace(r"[^\w\-]", "", regex=True)
     )
-    fig.update_layout(title="Average Rainfall by Year & Month (mm)", **_LAYOUT)
-    return fig
+
+    if "ddd_car" in df.columns:
+        df["ddd_car"] = df["ddd_car"].astype(str).str.strip().str.upper()
+
+    return df.sort_values("date").reset_index(drop=True)
 
 
-def wind_rose(df: pd.DataFrame) -> go.Figure:
-    """Polar bar chart for wind direction frequency."""
-    if "ddd_x" not in df.columns or df["ddd_x"].dropna().empty:
-        return _empty_fig("No wind direction data")
-
-    bins = range(0, 361, 45)
-    labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-    df = df.dropna(subset=["ddd_x"])
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["dir_bin"] = pd.cut(df["ddd_x"], bins=list(bins) + [360], labels=labels + ["N"], right=False)
-    counts = df["dir_bin"].value_counts().reindex(labels, fill_value=0)
+    df["year"]       = df["date"].dt.year
+    df["month"]      = df["date"].dt.month
+    df["day_of_year"]= df["date"].dt.dayofyear
 
-    fig = go.Figure(
-        go.Barpolar(
-            r=counts.values,
-            theta=labels,
-            marker_color="#4A90D9",
-            opacity=0.8,
-        )
-    )
-    fig.update_layout(title="Wind Direction Distribution", **_LAYOUT)
-    return fig
+    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
+    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
+    df["doy_sin"]   = np.sin(2 * np.pi * df["day_of_year"] / 365)
+    df["doy_cos"]   = np.cos(2 * np.pi * df["day_of_year"] / 365)
+
+    for col in ["RR", "Tavg", "RH_avg"]:
+        if col in df.columns:
+            df[f"{col}_roll7"] = (
+                df.groupby("station_id")[col]
+                .transform(lambda s: s.shift(1).rolling(7, min_periods=1).mean())
+            )
+
+    df["is_rainy"] = (df["RR"] > 0.5).astype(int)
+    return df
 
 
-def _empty_fig(message: str) -> go.Figure:
-    fig = go.Figure()
-    fig.add_annotation(
-        text=message, xref="paper", yref="paper",
-        x=0.5, y=0.5, showarrow=False,
-        font=dict(size=16, color="#AAAAAA"),
-    )
-    fig.update_layout(**_LAYOUT)
-    return fig
+def filter_data(
+    df: pd.DataFrame,
+    station_ids: Optional[list] = None,
+    date_start=None,
+    date_end=None,
+    rain_only: bool = False,
+) -> pd.DataFrame:
+    out = df.copy()
+    if station_ids:
+        valid = set(df["station_id"].unique())
+        safe  = [s for s in station_ids if s in valid]
+        out   = out[out["station_id"].isin(safe)]
+    if date_start:
+        out = out[out["date"] >= pd.Timestamp(date_start)]
+    if date_end:
+        out = out[out["date"] <= pd.Timestamp(date_end)]
+    if rain_only:
+        out = out[out["RR"] > 0.5]
+    return out.reset_index(drop=True)
+
+
+def get_stations(df: pd.DataFrame) -> list[str]:
+    return sorted(df["station_id"].unique().tolist())
