@@ -5,7 +5,6 @@ Pre-trains on data/weather_data.csv and caches model to models/cache/.
 
 import hashlib
 import logging
-import os
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -21,12 +20,12 @@ from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR  = Path(__file__).parent / "cache"
+MODEL_DIR = Path(__file__).parent / "cache"
 MODEL_DIR.mkdir(exist_ok=True)
 
-CLF_PATH   = MODEL_DIR / "rain_classifier.joblib"
-REG_PATH   = MODEL_DIR / "rain_regressor.joblib"
-DATA_PATH  = Path(__file__).parent.parent / "data" / "weather_data.csv"
+CLF_PATH  = MODEL_DIR / "rain_classifier.joblib"
+REG_PATH  = MODEL_DIR / "rain_regressor.joblib"
+DATA_PATH = Path(__file__).parent.parent / "data" / "weather_data.csv"
 
 FEATURE_COLS = [
     "Tn", "Tx", "Tavg", "RH_avg", "ss", "ff_x", "ff_avg",
@@ -91,7 +90,6 @@ def train(df: pd.DataFrame) -> dict:
         metrics["r2"]  = None
 
     joblib.dump(clf, CLF_PATH, compress=3)
-    # Restrict permissions where possible (won't error on read-only FS)
     try:
         CLF_PATH.chmod(0o600)
         REG_PATH.chmod(0o600)
@@ -127,9 +125,8 @@ def predict(row: pd.DataFrame) -> Tuple[float, Optional[float]]:
 
 
 def auto_train_if_needed() -> Optional[dict]:
-    """Called at app startup. Trains from data/weather_data.csv if no model cached."""
     if CLF_PATH.exists():
-        return None  # already cached
+        return None
     if not DATA_PATH.exists():
         logger.warning("weather_data.csv not found at %s", DATA_PATH)
         return None
@@ -156,10 +153,6 @@ def checksum() -> Optional[str]:
 
 
 def get_monthly_stats(df: pd.DataFrame) -> dict:
-    """
-    Pre-compute per-month median weather stats used by Smart Mode.
-    Returns dict keyed by month (1-12).
-    """
     stats = {}
     for month in range(1, 13):
         m = df[df["date"].dt.month == month]
@@ -168,51 +161,135 @@ def get_monthly_stats(df: pd.DataFrame) -> dict:
         def med(col):
             return float(m[col].median()) if col in m.columns and m[col].notna().any() else 0.0
         stats[month] = {
-            "Tn": med("Tn"), "Tx": med("Tx"), "Tavg": med("Tavg"),
-            "RH_avg": med("RH_avg"), "ss": med("ss"),
-            "ff_x": med("ff_x"), "ff_avg": med("ff_avg"),
-            "RR_roll7": med("RR_roll7") if "RR_roll7" in m.columns else med("RR"),
-            "Tavg_roll7": med("Tavg_roll7") if "Tavg_roll7" in m.columns else med("Tavg"),
+            "Tn":           med("Tn"),
+            "Tx":           med("Tx"),
+            "Tavg":         med("Tavg"),
+            "RH_avg":       med("RH_avg"),
+            "ss":           med("ss"),
+            "ff_x":         med("ff_x"),
+            "ff_avg":       med("ff_avg"),
+            "RR_roll7":     med("RR_roll7") if "RR_roll7" in m.columns else med("RR"),
+            "Tavg_roll7":   med("Tavg_roll7") if "Tavg_roll7" in m.columns else med("Tavg"),
             "RH_avg_roll7": med("RH_avg_roll7") if "RH_avg_roll7" in m.columns else med("RH_avg"),
-            "rain_prob": float((m["RR"] > 0.5).mean()) if "RR" in m.columns else 0.5,
-            "avg_rain_mm": float(m.loc[m["RR"] > 0.5, "RR"].mean()) if "RR" in m.columns else 5.0,
+            "rain_prob":    float((m["RR"] > 0.5).mean()) if "RR" in m.columns else 0.5,
+            "avg_rain_mm":  float(m.loc[m["RR"] > 0.5, "RR"].mean()) if "RR" in m.columns else 5.0,
         }
     return stats
 
 
-def estimate_rain_hours(prob: float, mm: Optional[float], month: int) -> dict:
+def estimate_rain_hours(
+    prob: float,
+    mm: Optional[float],
+    month: int,
+    ss: float = 6.0,    # sunshine duration (jam) — kolom ss dari CSV
+    rh: float = 80.0,   # kelembapan rata-rata (%) — kolom RH_avg dari CSV
+) -> dict:
     """
-    Estimate likely rain start/end times based on Indonesia tropical patterns.
-    Afternoon convective rain is most common (13:00-17:00).
-    Morning rain more common Nov-Mar (wet season).
+    Estimasi jam & durasi hujan berdasarkan data REAL udah gapakek (import random), dari CSV:
+
+    1. ss (sunshine duration jam/hari) — indikator tutupan awan BMKG:
+         ss = 0        → mendung penuh → hujan bisa sepanjang hari mulai pagi
+         ss < 2        → sangat mendung → hujan pagi
+         ss 2-4        → sebagian mendung → hujan siang (musim hujan)
+         ss 4-7        → cerah sebagian → hujan konvektif sore (paling umum Indonesia)
+         ss > 7        → cerah → hujan sore singkat
+
+    2. RH_avg (%) — atmosfer makin jenuh → hujan makin awal:
+         RH >= 90 → sangat lembap → mendukung hujan pagi/siang
+         RH < 75  → kering → hanya hujan konvektif sore
+
+    3. RR/mm (curah hujan harian) → durasi via intensitas BMKG:
+         Ringan       1-5 mm   ~ 1 mm/jam  → durasi = RR/1
+         Sedang       5-20 mm  ~ 4 mm/jam  → durasi = RR/4
+         Lebat        20-50 mm ~ 10 mm/jam → durasi = RR/10
+         Sangat lebat 50-100   ~ 20 mm/jam → durasi = RR/20
+         Ekstrem      >100 mm  ~ 30 mm/jam → durasi = RR/30
+         (clamp 1-10 jam)
+
+    4. Musim (month) — klimatologi BMKG:
+         Musim hujan Nov-Apr: hujan orografik/frontal pagi lebih mungkin
+         Musim kemarau Mei-Okt: dominan konvektif sore
     """
     if prob < 0.3:
-        return {"start": None, "end": None, "peak": None, "description": "Tidak ada hujan"}
+        return {
+            "start": None, "end": None, "peak": None,
+            "description": "Tidak ada hujan", "duration_h": 0,
+            "rain_type": "none", "intensity": "none",
+        }
 
-    # Wet season Nov-Apr: more morning rain; Dry season May-Oct: afternoon convective
     wet_season = month in [11, 12, 1, 2, 3, 4]
+    mm_val     = mm if (mm and mm > 0) else 0.0
 
-    if mm and mm > 40:
-        # Heavy rain — longer duration, likely starts earlier
-        start_h = 12 if wet_season else 13
-        end_h   = 19 if wet_season else 18
-        peak_h  = 14
-    elif mm and mm > 15:
-        start_h = 13
-        end_h   = 17
-        peak_h  = 15
+    # ── 1. Durasi dari RR via intensitas BMKG ─────────────────────────────
+    if mm_val == 0:
+        dur_h         = 1
+        intensity_cat = "gerimis"
+    elif mm_val <= 5:
+        dur_h         = max(1, round(mm_val / 1.0))
+        intensity_cat = "ringan"
+    elif mm_val <= 20:
+        dur_h         = max(1, round(mm_val / 4.0))
+        intensity_cat = "sedang"
+    elif mm_val <= 50:
+        dur_h         = max(2, round(mm_val / 10.0))
+        intensity_cat = "lebat"
+    elif mm_val <= 100:
+        dur_h         = max(2, round(mm_val / 20.0))
+        intensity_cat = "sangat lebat"
     else:
-        # Light — short afternoon shower
-        start_h = 14
-        end_h   = 16
-        peak_h  = 15
+        dur_h         = max(3, round(mm_val / 30.0))
+        intensity_cat = "ekstrem"
 
-    if wet_season and prob > 0.7:
-        start_h = max(9, start_h - 2)  # wet season: can start earlier
+    dur_h = min(10, dur_h)
+
+    # ── 2. Tipe & jam mulai dari ss + RH_avg + musim ──────────────────────
+    if ss == 0:
+        # Mendung penuh sepanjang hari
+        rain_type = "sepanjang hari"
+        start_h   = 6
+        dur_h     = max(dur_h, 6)
+        peak_h    = 10
+
+    elif ss < 2 or (ss < 4 and rh >= 90):
+        # Sangat mendung / sangat lembap → hujan pagi orografik
+        rain_type = "pagi (orografik)"
+        start_h   = 7 if wet_season else 8
+        peak_h    = start_h + 1
+
+    elif ss < 4 and wet_season:
+        # Sebagian mendung + musim hujan → hujan siang
+        rain_type = "siang"
+        start_h   = 11
+        peak_h    = 12
+
+    elif rh >= 90 and wet_season:
+        # Kelembapan ekstrem + musim hujan → siang-sore
+        rain_type = "siang-sore"
+        start_h   = 12
+        peak_h    = 13
+
+    else:
+        # Default Indonesia: konvektif sore
+        # ss 4-10 jam → start jam 13-15 (makin cerah makin mundur)
+        ss_norm   = max(0.0, min(1.0, (ss - 4.0) / 6.0))
+        start_h   = int(round(13 + ss_norm * 2))
+        rain_type = "konvektif sore (BMKG)"
+        peak_h    = start_h + 1
+
+    end_h  = min(23, start_h + dur_h)
+    peak_h = min(end_h - 1, max(start_h, peak_h))
+
+    desc = (
+        f"Hujan {rain_type} ~{start_h:02d}:00-{end_h:02d}:00 WIB "
+        f"({dur_h} jam, {intensity_cat})"
+    )
 
     return {
-        "start": f"{start_h:02d}:00",
-        "end":   f"{end_h:02d}:00",
-        "peak":  f"{peak_h:02d}:00",
-        "description": f"Hujan diperkirakan ~{start_h:02d}:00–{end_h:02d}:00 WIB",
+        "start":       f"{start_h:02d}:00",
+        "end":         f"{end_h:02d}:00",
+        "peak":        f"{peak_h:02d}:00",
+        "duration_h":  dur_h,
+        "rain_type":   rain_type,
+        "intensity":   intensity_cat,
+        "description": desc,
     }

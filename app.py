@@ -95,16 +95,46 @@ def _build_row(target_date: datetime.date, feats: dict) -> pd.DataFrame:
 
 
 def _infer(target_date: datetime.date) -> dict:
-    """Get historical median features for the target month."""
+    """
+    Get features for target_date using historical monthly median as base,
+    then apply deterministic daily variation so each date looks different.
+    Uses date as seed → same date always gives same result (stable on rerun).
+    """
     stats = st.session_state.month_stats
     if stats:
-        return stats.get(target_date.month, list(stats.values())[0])
-    # Fallback: Indonesia typical values
-    return {
-        "Tn": 22.0, "Tx": 32.0, "Tavg": 27.0, "RH_avg": 82.0,
-        "ss": 5.0, "ff_x": 6.0, "ff_avg": 4.0,
-        "RR_roll7": 5.0, "Tavg_roll7": 27.0, "RH_avg_roll7": 82.0,
-    }
+        base = dict(stats.get(target_date.month, list(stats.values())[0]))
+    else:
+        base = {
+            "Tn": 22.0, "Tx": 32.0, "Tavg": 27.0, "RH_avg": 82.0,
+            "ss": 5.0, "ff_x": 6.0, "ff_avg": 4.0,
+            "RR_roll7": 5.0, "Tavg_roll7": 27.0, "RH_avg_roll7": 82.0,
+        }
+
+    # Seeded RNG from date → deterministic, berbeda tiap hari
+    seed = target_date.year * 10000 + target_date.month * 100 + target_date.day
+    rng  = np.random.default_rng(seed)
+
+    def jitter(val, scale, lo=None, hi=None):
+        """Gaussian noise dengan clamp."""
+        v = val + rng.normal(0, scale)
+        if lo is not None: v = max(lo, v)
+        if hi is not None: v = min(hi, v)
+        return round(float(v), 1)
+
+    base["Tavg"]   = jitter(base["Tavg"],   1.2, -5,  50)
+    base["Tn"]     = jitter(base["Tn"],     1.0, -5,  base["Tavg"])
+    base["Tx"]     = jitter(base["Tx"],     1.5, base["Tavg"], 55)
+    base["RH_avg"] = jitter(base["RH_avg"], 4.0,  30, 100)
+    base["ss"]     = jitter(base["ss"],     1.5,  0,  12)
+    base["ff_x"]   = jitter(base["ff_x"],   1.0,  0,  30)
+    base["ff_avg"] = jitter(base["ff_avg"], 0.8,  0,  base["ff_x"])
+
+    # Roll7: variasi lebih kecil (rolling average sudah lebih smooth)
+    base["RR_roll7"]    = jitter(base.get("RR_roll7", 5.0),    1.5, 0)
+    base["Tavg_roll7"]  = jitter(base.get("Tavg_roll7", 27.0), 0.8, -5, 50)
+    base["RH_avg_roll7"]= jitter(base.get("RH_avg_roll7", 82.0), 2.5, 30, 100)
+
+    return base
 
 
 def _verdict(prob: float, mm: float | None):
@@ -126,10 +156,14 @@ def _intensity(mm: float | None, prob: float) -> str:
 
 
 def _run_forecast(target_date: datetime.date):
-    feats = _infer(target_date)
-    row   = _build_row(target_date, feats)
+    feats    = _infer(target_date)
+    row      = _build_row(target_date, feats)
     prob, mm = predict(row)
-    hours = estimate_rain_hours(prob, mm, target_date.month)
+    hours    = estimate_rain_hours(
+        prob, mm, target_date.month,
+        ss=feats.get("ss",     6.0),
+        rh=feats.get("RH_avg", 80.0),
+    )
     return prob, mm, hours, feats
 
 
@@ -293,7 +327,11 @@ if st.session_state.tab == "Forecast":
         except Exception as e:
             st.error(f"Prediksi gagal: {e}"); st.stop()
 
-        hours   = estimate_rain_hours(prob, mm, target_date.month)
+        hours = estimate_rain_hours(
+            prob, mm, target_date.month,
+            ss=ss,
+            rh=rh,
+        )
         verdict, color, icon, alert_cls, advice = _verdict(prob, mm)
         intensity = _intensity(mm, prob)
 
