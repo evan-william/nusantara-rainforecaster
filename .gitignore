@@ -1,42 +1,14 @@
-# Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.egg
-*.egg-info/
-dist/
-build/
-.eggs/
-
-# Virtual environments
 .venv/
 venv/
-env/
-ENV/
-
-# Streamlit
 .streamlit/secrets.toml
-
-# Models — trained weights are not committed; regenerate with run.sh
-models/*.pkl
-
-# OS
+# Keep joblib cache in repo so Streamlit Cloud doesn't retrain every deploy
+# models/cache/*.joblib
+*.log
 .DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# Testing / coverage
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Jupyter
-.ipynb_checkpoints/
 *.ipynb
-
-# Logs
-*.log
+.ipynb_checkpoints/

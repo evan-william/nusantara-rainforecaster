@@ -1,488 +1,432 @@
 """
-Nusantara RainForecaster — main entry point.
-No sidebar. Tabs: Dashboard · Data · Forecast
-Forecast has two modes:
-  - Smart Mode: pick any date → ML auto-infers features from historical patterns
-  - Manual Mode: user inputs all weather params manually
+Nusantara RainForecaster
+Auto-loads data/weather_data.csv, pre-trains on startup with joblib cache.
+No CSV upload needed. No sidebar. Gamified weather UI.
 """
 
 import datetime
-
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-from data.loader import (
-    engineer_features,
-    filter_data,
-    get_stations,
-    load_csv,
+from data.loader import engineer_features, filter_data, get_stations, load_csv
+from models.trainer import (
+    auto_train_if_needed, checksum, estimate_rain_hours,
+    get_monthly_stats, is_trained, predict, train, DATA_PATH,
 )
-
-MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB
-from models.trainer import checksum, is_trained, predict, train
 from utils.charts import (
-    heatmap_monthly,
-    humidity_vs_rain,
-    rain_probability_by_month,
-    rainfall_bar,
-    temp_band,
+    heatmap_monthly, humidity_vs_rain,
+    rain_probability_by_month, rainfall_bar, temp_band,
 )
 from utils.style import (
-    header,
-    inject_css,
-    prediction_card,
-    stat_cards,
+    alert_banner, inject_css, kpi_grid, nav_pills,
+    topbar, weather_hero, week_strip,
 )
 
 st.set_page_config(
-    page_title="Nusantara RainForecaster",
+    page_title="RainForecaster",
+    page_icon="💧",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 inject_css()
 
-# ── Session state ──────────────────────────────────────────────────────────
-for key, default in [("df_raw", None), ("tab", "Dashboard"), ("forecast_mode", "smart")]:
-    if key not in st.session_state:
-        st.session_state[key] = default
+# ── Session defaults ────────────────────────────────────────────────────────
+_DEFAULTS = {
+    "tab":          "Forecast",
+    "sel_day_idx":  0,
+    "df_feat":      None,
+    "month_stats":  None,
+    "trained_msg":  None,
+}
+for k, v in _DEFAULTS.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 
-def _df() -> pd.DataFrame | None:
-    return st.session_state.df_raw
+# ── Auto-load data & train on first run ─────────────────────────────────────
+@st.cache_resource(show_spinner=False)
+def _startup():
+    """Runs once per process. Loads CSV and trains model if not cached."""
+    df = None
+    feat = None
+    stats = None
+    train_result = None
+
+    if DATA_PATH.exists():
+        try:
+            df   = load_csv(DATA_PATH)
+            feat = engineer_features(df)
+            stats = get_monthly_stats(feat)
+        except Exception as e:
+            st.error(f"Gagal load data: {e}")
+
+    if not is_trained() and feat is not None:
+        try:
+            train_result = train(feat)
+        except Exception as e:
+            st.error(f"Auto-train gagal: {e}")
+    elif not is_trained():
+        # Try auto_train (will find data itself)
+        train_result = auto_train_if_needed()
+
+    return df, feat, stats, train_result
 
 
-def _featured() -> pd.DataFrame | None:
-    df = _df()
-    return engineer_features(df) if df is not None else None
+df_raw, df_feat, month_stats, _train_info = _startup()
+
+# Populate session state from startup
+if st.session_state.df_feat is None and df_feat is not None:
+    st.session_state.df_feat   = df_feat
+    st.session_state.month_stats = month_stats
 
 
-def _infer_features_from_history(df: pd.DataFrame, target_date: datetime.date) -> dict:
-    """
-    Smart Mode: estimate weather features for a given date by averaging
-    historical values for the same month across all years in the dataset.
-    Falls back to overall medians when the month has no data.
-    """
-    df = df.copy()
-    month = target_date.month
-    same_month = df[df["date"].dt.month == month]
-    src = same_month if len(same_month) >= 10 else df
+# ── Helpers ─────────────────────────────────────────────────────────────────
 
-    def med(col): return float(src[col].median()) if col in src.columns and src[col].notna().any() else 0.0
-
-    # 7-day rolling: use same-month average of RR_roll7 if available,
-    # else just use same-month median RR as proxy
-    rr_roll   = med("RR_roll7")   if "RR_roll7"   in src.columns else med("RR")
-    tavg_roll = med("Tavg_roll7") if "Tavg_roll7" in src.columns else med("Tavg")
-    rh_roll   = med("RH_avg_roll7") if "RH_avg_roll7" in src.columns else med("RH_avg")
-
-    return {
-        "Tn": med("Tn"), "Tx": med("Tx"), "Tavg": med("Tavg"),
-        "RH_avg": med("RH_avg"), "ss": med("ss"),
-        "ff_x": med("ff_x"), "ff_avg": med("ff_avg"),
-        "RR_roll7": rr_roll,
-        "Tavg_roll7": tavg_roll,
-        "RH_avg_roll7": rh_roll,
-    }
-
-
-def _build_feature_row(target_date: datetime.date, feats: dict) -> pd.DataFrame:
-    dt    = pd.Timestamp(target_date)
-    month = dt.month
-    doy   = dt.dayofyear
+def _build_row(target_date: datetime.date, feats: dict) -> pd.DataFrame:
+    dt = pd.Timestamp(target_date)
     return pd.DataFrame([{
         **feats,
-        "month_sin": np.sin(2 * np.pi * month / 12),
-        "month_cos": np.cos(2 * np.pi * month / 12),
-        "doy_sin":   np.sin(2 * np.pi * doy / 365),
-        "doy_cos":   np.cos(2 * np.pi * doy / 365),
+        "month_sin": np.sin(2 * np.pi * dt.month / 12),
+        "month_cos": np.cos(2 * np.pi * dt.month / 12),
+        "doy_sin":   np.sin(2 * np.pi * dt.dayofyear / 365),
+        "doy_cos":   np.cos(2 * np.pi * dt.dayofyear / 365),
     }])
 
 
-def _render_result(target_date: datetime.date, prob: float, mm: float | None, inferred: dict | None = None) -> None:
+def _infer(target_date: datetime.date) -> dict:
+    """Get historical median features for the target month."""
+    stats = st.session_state.month_stats
+    if stats:
+        return stats.get(target_date.month, list(stats.values())[0])
+    # Fallback: Indonesia typical values
+    return {
+        "Tn": 22.0, "Tx": 32.0, "Tavg": 27.0, "RH_avg": 82.0,
+        "ss": 5.0, "ff_x": 6.0, "ff_avg": 4.0,
+        "RR_roll7": 5.0, "Tavg_roll7": 27.0, "RH_avg_roll7": 82.0,
+    }
+
+
+def _verdict(prob: float, mm: float | None):
     if prob >= 0.75:
-        verdict, color, badge_cls = "Hujan Lebat", "#38BDF8", "badge-warn"
-        advice = "Kemungkinan besar hujan lebat. Pertimbangkan untuk tidak keluar."
-    elif prob >= 0.5:
-        verdict, color, badge_cls = "Kemungkinan Hujan", "#60A5FA", "badge-info"
-        advice = "Ada kemungkinan hujan. Bawa payung."
-    elif prob >= 0.3:
-        verdict, color, badge_cls = "Gerimis Mungkin", "#94A3B8", "badge-info"
-        advice = "Kemungkinan kecil hujan. Cuaca kemungkinan baik-baik saja."
-    else:
-        verdict, color, badge_cls = "Cerah & Kering", "#22C55E", "badge-ok"
-        advice = "Probabilitas hujan rendah. Nikmati harimu!"
-
-    intensity = (
-        "Lebat"   if mm and mm > 50 else
-        "Sedang"  if mm and mm > 10 else
-        "Ringan"  if prob > 0.5     else
-        "Tidak ada"
-    )
-
-    prediction_card(
-        date_str=target_date.strftime("%A, %d %B %Y"),
-        prob=prob, mm=mm, intensity=intensity,
-        verdict=verdict, color=color,
-    )
-    st.markdown(
-        f'<div class="badge {badge_cls}" style="margin-top:12px">{advice}</div>',
-        unsafe_allow_html=True,
-    )
-
-    # If Smart Mode, show the inferred values in a collapsed expander
-    if inferred:
-        with st.expander("Nilai yang diestimasi dari data historis"):
-            cols = st.columns(4)
-            labels = [
-                ("Avg Temp", f"{inferred['Tavg']:.1f} °C"),
-                ("Min Temp", f"{inferred['Tn']:.1f} °C"),
-                ("Max Temp", f"{inferred['Tx']:.1f} °C"),
-                ("Humidity", f"{inferred['RH_avg']:.0f} %"),
-                ("Sunshine", f"{inferred['ss']:.1f} h"),
-                ("Wind Max", f"{inferred['ff_x']:.1f} m/s"),
-                ("Wind Avg", f"{inferred['ff_avg']:.1f} m/s"),
-                ("RR 7d avg", f"{inferred['RR_roll7']:.1f} mm"),
-            ]
-            for i, (lbl, val) in enumerate(labels):
-                cols[i % 4].metric(lbl, val)
+        return "Hujan Lebat", "#F87171", "⛈️", "alert-heavy", "Kemungkinan besar hujan lebat. Hindari bepergian."
+    if prob >= 0.5:
+        return "Akan Hujan", "#38BDF8", "🌧️", "alert-rain", "Siapkan payung sebelum keluar."
+    if prob >= 0.3:
+        return "Mungkin Hujan", "#FDE047", "🌦️", "alert-maybe", "Ada kemungkinan hujan ringan."
+    return "Cerah", "#4ADE80", "☀️", "alert-clear", "Cuaca cerah. Nikmati harimu!"
 
 
-def _no_data_banner() -> None:
-    st.markdown("""
-    <div style="text-align:center;padding:4rem 0;">
-        <div style="font-size:2.5rem;margin-bottom:12px">⛅</div>
-        <div style="font-size:1rem;font-weight:500;color:#94A3B8;margin-bottom:6px">
-            Belum ada data
+def _intensity(mm: float | None, prob: float) -> str:
+    if mm and mm > 50: return "Sangat Lebat"
+    if mm and mm > 20: return "Lebat"
+    if mm and mm > 5:  return "Sedang"
+    if prob > 0.5:     return "Ringan"
+    return "Tidak ada"
+
+
+def _run_forecast(target_date: datetime.date):
+    feats = _infer(target_date)
+    row   = _build_row(target_date, feats)
+    prob, mm = predict(row)
+    hours = estimate_rain_hours(prob, mm, target_date.month)
+    return prob, mm, hours, feats
+
+
+# ── Header & Nav ────────────────────────────────────────────────────────────
+topbar(is_trained())
+
+nav_pills(st.session_state.tab)
+
+# Invisible real buttons overlaid (hack: use st.columns with zero-height buttons)
+_nc1, _nc2, _nc3, _ = st.columns([1, 1, 1, 6])
+with _nc1:
+    if st.button("Dashboard", key="nav_d", use_container_width=True):
+        st.session_state.tab = "Dashboard"; st.rerun()
+with _nc2:
+    if st.button("Forecast", key="nav_f", use_container_width=True):
+        st.session_state.tab = "Forecast"; st.rerun()
+with _nc3:
+    if st.button("Data", key="nav_data", use_container_width=True):
+        st.session_state.tab = "Data"; st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FORECAST TAB  (default landing page)
+# ══════════════════════════════════════════════════════════════════════════════
+if st.session_state.tab == "Forecast":
+
+    if not is_trained():
+        st.markdown("""
+        <div class="train-banner">
+            <div class="train-banner-title"><span class="radar-icon">📡</span> Melatih Model AI...</div>
+            <div class="train-banner-sub">Taruh file <code>weather_data.csv</code> di folder <code>data/</code> lalu restart app.</div>
         </div>
-        <div style="font-size:.85rem;color:#4B6A8A">
-            Buka tab <strong style="color:#38BDF8">Data</strong> untuk upload CSV kamu.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ── Header & Navigation ────────────────────────────────────────────────────
-
-header()
-
-TABS = ["Dashboard", "Data", "Forecast"]
-
-nav_html = '<div class="rf-nav">'
-for t in TABS:
-    active = "active" if st.session_state.tab == t else ""
-    nav_html += f'<button class="rf-nav-btn {active}" disabled>{t}</button>'
-nav_html += "</div>"
-st.markdown(nav_html, unsafe_allow_html=True)
-
-nc1, nc2, nc3, _ = st.columns([1, 1, 1, 6])
-for col, tab_name in zip([nc1, nc2, nc3], TABS):
-    with col:
-        if st.button(tab_name, use_container_width=True, key=f"nav_{tab_name}"):
-            st.session_state.tab = tab_name
-            st.rerun()
-
-st.markdown("---")
-
-# ══════════════════════════════════════════════════════════════════════════
-# DASHBOARD
-# ══════════════════════════════════════════════════════════════════════════
-if st.session_state.tab == "Dashboard":
-    df = _df()
-    if df is None:
-        _no_data_banner()
+        """, unsafe_allow_html=True)
         st.stop()
 
-    feat = engineer_features(df)
+    today  = datetime.date.today()
+    # ── Mode selector ──────────────────────────────────────────────────────
+    st.markdown('<div class="sec-label">Mode Prediksi</div>', unsafe_allow_html=True)
+    mode = st.radio(
+        "mode", ["🔮  Smart Mode", "🛠  Manual Mode"],
+        horizontal=True, label_visibility="collapsed"
+    )
+
+    smart = "Smart" in mode
+
+    if smart:
+        # ── 7-day strip ──────────────────────────────────────────────────
+        st.markdown('<div class="sec-label">Pilih Tanggal</div>', unsafe_allow_html=True)
+
+        week_days = []
+        for i in range(7):
+            d = today + datetime.timedelta(days=i)
+            try:
+                p, m, _, _ = _run_forecast(d)
+                week_days.append({"date": d, "prob": p, "mm": m})
+            except Exception:
+                week_days.append({"date": d, "prob": 0.0, "mm": None})
+
+        # Render HTML strip (visual only)
+        week_strip(week_days, st.session_state.sel_day_idx)
+
+        # Clickable day selectors below strip
+        day_cols = st.columns(7)
+        for i, (col, d) in enumerate(zip(day_cols, week_days)):
+            with col:
+                lbl = d["date"].strftime("%d/%m")
+                if st.button(lbl, key=f"day_{i}", use_container_width=True):
+                    st.session_state.sel_day_idx = i
+                    st.rerun()
+
+        # Also allow arbitrary date
+        st.markdown('<div class="sec-label" style="margin-top:1rem">Atau Pilih Tanggal Lain</div>', unsafe_allow_html=True)
+        custom_col, _ = st.columns([1.5, 5])
+        with custom_col:
+            custom_date = st.date_input("Tanggal", value=today + datetime.timedelta(days=1),
+                label_visibility="collapsed")
+
+        # Determine active date: custom if changed, else selected day
+        sel_idx    = st.session_state.sel_day_idx
+        if sel_idx < len(week_days):
+            active_date = week_days[sel_idx]["date"]
+        else:
+            active_date = custom_date
+
+        # Use custom_date if user changed it away from "tomorrow"
+        if custom_date != today + datetime.timedelta(days=1):
+            active_date = custom_date
+
+        # ── Run prediction ────────────────────────────────────────────────
+        try:
+            prob, mm, hours, feats = _run_forecast(active_date)
+        except Exception as e:
+            st.error(f"Prediksi gagal: {e}"); st.stop()
+
+        verdict, color, icon, alert_cls, advice = _verdict(prob, mm)
+        intensity = _intensity(mm, prob)
+
+        # Hero card
+        weather_hero(
+            date_str=active_date.strftime("%A, %d %B %Y"),
+            verdict=verdict, sub=f"Berdasarkan pola historis bulan {active_date.strftime('%B')}",
+            prob=prob, mm=mm, intensity=intensity,
+            color=color, icon=icon, rain_window=hours,
+        )
+
+        alert_banner(alert_cls, icon, advice)
+
+        # Inferred values detail
+        with st.expander("Detail nilai yang diestimasi dari data historis"):
+            ec = st.columns(4)
+            items = [
+                ("Suhu Avg", f"{feats['Tavg']:.1f} °C"),
+                ("Suhu Min", f"{feats['Tn']:.1f} °C"),
+                ("Suhu Max", f"{feats['Tx']:.1f} °C"),
+                ("Kelembapan", f"{feats['RH_avg']:.0f} %"),
+                ("Matahari", f"{feats['ss']:.1f} jam"),
+                ("Angin Maks", f"{feats['ff_x']:.1f} m/s"),
+                ("Angin Avg", f"{feats['ff_avg']:.1f} m/s"),
+                ("RR 7 hari", f"{feats['RR_roll7']:.1f} mm"),
+            ]
+            for i, (lbl, val) in enumerate(items):
+                ec[i % 4].metric(lbl, val)
+
+    else:
+        # ── MANUAL MODE ───────────────────────────────────────────────────
+        with st.form("manual_form"):
+            st.markdown('<div class="sec-label">Kondisi Cuaca</div>', unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            target_date = c1.date_input("Tanggal", value=today + datetime.timedelta(days=1))
+            tavg = c2.number_input("Suhu Rata-rata (°C)", value=27.0, min_value=-5.0, max_value=50.0)
+            tn   = c2.number_input("Suhu Min (°C)",       value=22.0, min_value=-5.0, max_value=45.0)
+            tx   = c3.number_input("Suhu Max (°C)",       value=32.0, min_value=-5.0, max_value=55.0)
+            rh   = c3.number_input("Kelembapan (%)",      value=82.0, min_value=0.0,  max_value=100.0)
+
+            c4, c5, c6 = st.columns(3)
+            ss     = c4.number_input("Durasi Matahari (h)",    value=5.0)
+            ff_x   = c5.number_input("Angin Maks (m/s)",       value=6.0)
+            ff_avg = c6.number_input("Angin Rata-rata (m/s)",  value=4.0)
+
+            st.markdown('<div class="sec-label">Rata-rata 7 Hari Terakhir</div>', unsafe_allow_html=True)
+            r1, r2, r3 = st.columns(3)
+            rr_r   = r1.number_input("Curah Hujan (mm)", value=5.0,  min_value=0.0)
+            tavg_r = r2.number_input("Suhu (°C)",        value=27.0, min_value=-5.0, max_value=50.0)
+            rh_r   = r3.number_input("Kelembapan (%)",   value=82.0, min_value=0.0,  max_value=100.0)
+
+            go = st.form_submit_button("Prediksi Sekarang →", type="primary", use_container_width=True)
+
+        if not go:
+            st.stop()
+
+        feats = {"Tn": tn, "Tx": tx, "Tavg": tavg, "RH_avg": rh,
+                 "ss": ss, "ff_x": ff_x, "ff_avg": ff_avg,
+                 "RR_roll7": rr_r, "Tavg_roll7": tavg_r, "RH_avg_roll7": rh_r}
+        row = _build_row(target_date, feats)
+        try:
+            prob, mm = predict(row)
+        except Exception as e:
+            st.error(f"Prediksi gagal: {e}"); st.stop()
+
+        hours   = estimate_rain_hours(prob, mm, target_date.month)
+        verdict, color, icon, alert_cls, advice = _verdict(prob, mm)
+        intensity = _intensity(mm, prob)
+
+        weather_hero(
+            date_str=target_date.strftime("%A, %d %B %Y"),
+            verdict=verdict, sub="Berdasarkan input kondisi manual",
+            prob=prob, mm=mm, intensity=intensity,
+            color=color, icon=icon, rain_window=hours,
+        )
+        alert_banner(alert_cls, icon, advice)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DASHBOARD TAB
+# ══════════════════════════════════════════════════════════════════════════════
+elif st.session_state.tab == "Dashboard":
+    feat = st.session_state.df_feat
+
+    if feat is None:
+        st.markdown("""
+        <div style="text-align:center;padding:4rem 0;color:#334155">
+            <div style="font-size:3rem;margin-bottom:12px">📊</div>
+            <div style="font-size:1rem;color:#475569">Tidak ada data. Taruh <code>weather_data.csv</code> di folder <code>data/</code>.</div>
+        </div>""", unsafe_allow_html=True)
+        st.stop()
+
     stations = get_stations(feat)
 
+    # ── Inline filters ────────────────────────────────────────────────────
+    st.markdown('<div class="sec-label">Filter</div>', unsafe_allow_html=True)
     fc1, fc2, fc3, fc4 = st.columns([2, 1.5, 1.5, 1])
     with fc1:
-        sel_stations = st.multiselect("Station", stations, default=stations,
-            label_visibility="collapsed", placeholder="All stations")
-    date_min, date_max = feat["date"].min().date(), feat["date"].max().date()
+        sel_st = st.multiselect("Stasiun", stations, default=stations,
+            label_visibility="collapsed", placeholder="Semua stasiun")
+    dmin, dmax = feat["date"].min().date(), feat["date"].max().date()
     with fc2:
-        d_start = st.date_input("From", value=date_min, min_value=date_min,
-            max_value=date_max, label_visibility="collapsed")
+        ds = st.date_input("Dari",   value=dmin, min_value=dmin, max_value=dmax, label_visibility="collapsed")
     with fc3:
-        d_end = st.date_input("To", value=date_max, min_value=date_min,
-            max_value=date_max, label_visibility="collapsed")
+        de = st.date_input("Sampai", value=dmax, min_value=dmin, max_value=dmax, label_visibility="collapsed")
     with fc4:
         rain_only = st.checkbox("Hujan saja")
 
-    filtered = filter_data(feat, station_ids=sel_stations or None,
-        date_start=str(d_start), date_end=str(d_end), rain_only=rain_only)
+    filtered = filter_data(feat, station_ids=sel_st or None,
+        date_start=str(ds), date_end=str(de), rain_only=rain_only)
 
     if filtered.empty:
-        st.warning("Tidak ada data yang cocok dengan filter ini.")
-        st.stop()
+        st.warning("Tidak ada data untuk filter ini."); st.stop()
 
-    stat_cards(
+    kpi_grid(
         records=len(filtered),
         rainy=int((filtered["RR"] > 0.5).sum()),
         avg_rain=filtered["RR"].mean(),
         avg_temp=filtered["Tavg"].mean(),
     )
 
-    row1l, row1r = st.columns(2)
-    with row1l:
+    r1l, r1r = st.columns(2)
+    with r1l:
         st.plotly_chart(rainfall_bar(filtered), use_container_width=True, config={"displayModeBar": False})
-    with row1r:
+    with r1r:
         st.plotly_chart(rain_probability_by_month(filtered), use_container_width=True, config={"displayModeBar": False})
 
     st.plotly_chart(temp_band(filtered), use_container_width=True, config={"displayModeBar": False})
 
-    row2l, row2r = st.columns(2)
-    with row2l:
+    r2l, r2r = st.columns(2)
+    with r2l:
         st.plotly_chart(humidity_vs_rain(filtered), use_container_width=True, config={"displayModeBar": False})
-    with row2r:
+    with r2r:
         st.plotly_chart(heatmap_monthly(filtered), use_container_width=True, config={"displayModeBar": False})
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# DATA (was Explorer)
-# ══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA TAB
+# ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.tab == "Data":
-    st.markdown('<div class="section-title">Upload Data CSV</div>', unsafe_allow_html=True)
+    feat = st.session_state.df_feat
 
-    uploaded = st.file_uploader(
-        "Drop your BMKG weather CSV here",
-        type=["csv"],
-        help="Kolom wajib: date (DD-MM-YYYY), Tn, Tx, Tavg, RH_avg, RR, station_id",
-        label_visibility="collapsed",
-    )
-
-    if uploaded is not None:
-        if uploaded.size > MAX_UPLOAD_BYTES:
-            st.error(f"File terlalu besar ({uploaded.size/1e6:.0f} MB). Maks 200 MB.")
-            st.stop()
-        with st.spinner("Memproses dan memvalidasi…"):
+    # ── Data status ───────────────────────────────────────────────────────
+    if feat is not None:
+        st.success(
+            f"**{len(feat):,} baris** · **{feat['station_id'].nunique()} stasiun** · "
+            f"{feat['date'].min().strftime('%d %b %Y')} → {feat['date'].max().strftime('%d %b %Y')}"
+        )
+    else:
+        st.warning(f"File `weather_data.csv` tidak ditemukan di `{DATA_PATH}`. "
+                   "Upload manual di bawah atau taruh file di path tersebut lalu restart.")
+        uploaded = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed")
+        if uploaded:
             try:
-                df = load_csv(uploaded)
-                st.session_state.df_raw = df
+                df   = load_csv(uploaded)
+                feat = engineer_features(df)
+                st.session_state.df_feat    = feat
+                st.session_state.month_stats = get_monthly_stats(feat)
+                st.success(f"Loaded {len(feat):,} rows.")
+                st.rerun()
             except ValueError as e:
                 st.error(f"File tidak valid: {e}")
-                st.stop()
-
-    df = _df()
-    if df is None:
-        st.info("Upload CSV untuk mulai. Kolom wajib: `date`, `Tn`, `Tx`, `Tavg`, `RH_avg`, `RR`, `station_id`")
         st.stop()
 
-    st.success(
-        f"**{len(df):,} baris** · **{df['station_id'].nunique()} stasiun** · "
-        f"{df['date'].min().strftime('%d %b %Y')} → {df['date'].max().strftime('%d %b %Y')}"
-    )
+    # ── Model training ────────────────────────────────────────────────────
+    with st.expander("🤖  Model AI", expanded=not is_trained()):
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Training rows", f"{len(feat):,}")
+        mc2.metric("Stasiun", feat["station_id"].nunique())
+        mc3.metric("Hari hujan", f"{(feat['RR'] > 0.5).sum():,}")
 
-    # Train model straight from this tab
-    with st.expander("Train Model AI", expanded=not is_trained()):
-        feat = engineer_features(df)
-        tc1, tc2, tc3 = st.columns(3)
-        tc1.metric("Baris training", f"{len(feat):,}")
-        tc2.metric("Stasiun", feat["station_id"].nunique())
-        tc3.metric("Hari hujan", f"{(feat['RR'] > 0.5).sum():,}")
-
-        if st.button("Mulai Training", type="primary"):
-            with st.spinner("Training Gradient Boosting + Random Forest…"):
-                try:
-                    m = train(feat)
-                    st.success("Training selesai!")
-                    mc1, mc2, mc3 = st.columns(3)
-                    mc1.metric("Accuracy", f"{m['accuracy']:.2%}")
-                    mc2.metric("ROC-AUC",  f"{m['roc_auc']:.3f}")
-                    mc3.metric("Rain MAE", f"{m['mae']:.1f} mm" if m["mae"] else "N/A")
-                except Exception as e:
-                    st.error(f"Training gagal: {e}")
-
-    if is_trained():
-        st.caption(f"Model checksum (MD5): `{checksum()}`")
-
-    st.markdown('<div class="section-title">Filter & Preview</div>', unsafe_allow_html=True)
-    ec1, ec2, ec3 = st.columns([2, 1.5, 1.5])
-    stations = get_stations(df)
-    with ec1:
-        sel = st.multiselect("Stasiun", stations, default=stations, placeholder="Semua stasiun")
-    date_min, date_max = df["date"].min().date(), df["date"].max().date()
-    with ec2:
-        es = st.date_input("Dari", value=date_min, min_value=date_min, max_value=date_max, key="exp_s")
-    with ec3:
-        ee = st.date_input("Sampai", value=date_max, min_value=date_min, max_value=date_max, key="exp_e")
-
-    filt = filter_data(df, station_ids=sel or None, date_start=str(es), date_end=str(ee))
-    st.markdown(f"**{len(filt):,} records** cocok.")
-
-    preview_cols = [c for c in ["date","station_id","Tn","Tx","Tavg","RH_avg","RR","ss"] if c in filt.columns]
-    st.dataframe(filt[preview_cols].head(1000), use_container_width=True, hide_index=True)
-    st.download_button("Download CSV", filt.to_csv(index=False).encode(), "filtered_weather.csv", "text/csv")
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# FORECAST — Smart Mode + Manual Mode
-# ══════════════════════════════════════════════════════════════════════════
-elif st.session_state.tab == "Forecast":
-
-    if not is_trained():
-        st.markdown("""
-        <div style="text-align:center;padding:3rem 0;">
-            <div style="font-size:1.8rem;margin-bottom:8px">🤖</div>
-            <div style="font-size:1rem;color:#94A3B8;font-weight:500">Model belum ditraining</div>
-            <div style="font-size:.85rem;color:#4B6A8A;margin-top:4px">
-                Upload data dan train model di tab <strong style="color:#38BDF8">Data</strong> dulu.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.stop()
-
-    # ── Mode switcher ──
-    st.markdown('<div class="section-title">Mode Prediksi</div>', unsafe_allow_html=True)
-    mode_col, _ = st.columns([2, 5])
-    with mode_col:
-        mode = st.radio(
-            "mode",
-            ["Smart Mode", "Manual Mode"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="forecast_mode_radio",
-        )
-
-    # Mode description
-    if mode == "Smart Mode":
-        st.markdown("""
-        <div class="mode-desc">
-            <strong>Smart Mode</strong> — Pilih tanggal, AI otomatis memperkirakan kondisi cuaca
-            berdasarkan pola historis bulan tersebut. Tidak perlu input apapun.
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class="mode-desc">
-            <strong>Manual Mode</strong> — Masukkan kondisi cuaca aktual secara manual
-            untuk prediksi yang lebih presisi.
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("")
-
-    # ══════════════════
-    # SMART MODE
-    # ══════════════════
-    if mode == "Smart Mode":
-        df = _df()
-        if df is None:
-            st.warning("Upload data historis di tab Data agar Smart Mode bisa bekerja.")
-            st.stop()
-
-        feat = engineer_features(df)
-
-        # Date picker — allow any date, past or future
-        today = datetime.date.today()
-        sc1, sc2, _ = st.columns([1.5, 1.5, 4])
-        with sc1:
-            target_date = st.date_input(
-                "Pilih tanggal",
-                value=today + datetime.timedelta(days=1),
-                key="smart_date",
-            )
-        with sc2:
-            # Quick-pick buttons
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            if st.button("Besok", key="btn_tomorrow"):
-                target_date = today + datetime.timedelta(days=1)
-            
-        # Show quick range forecast (next 7 days)
-        show_range = st.checkbox("Lihat 7 hari ke depan sekaligus", value=False)
-
-        if show_range:
-            st.markdown('<div class="section-title">Prakiraan 7 Hari</div>', unsafe_allow_html=True)
-            days_data = []
-            for i in range(7):
-                d = today + datetime.timedelta(days=i)
-                feats = _infer_features_from_history(feat, d)
-                row = _build_feature_row(d, feats)
-                try:
-                    p, m = predict(row)
-                    days_data.append({"date": d, "prob": p, "mm": m})
-                except Exception:
-                    pass
-
-            if days_data:
-                # Render 7-day strip
-                day_cols = st.columns(7)
-                day_names = ["Sen","Sel","Rab","Kam","Jum","Sab","Min"]
-                for i, (col, d) in enumerate(zip(day_cols, days_data)):
-                    p = d["prob"]
-                    m = d["mm"]
-                    icon = "🌧️" if p >= 0.5 else ("🌦️" if p >= 0.3 else "☀️")
-                    color = "#38BDF8" if p >= 0.75 else ("#60A5FA" if p >= 0.5 else ("#94A3B8" if p >= 0.3 else "#22C55E"))
-                    mm_str = f"{m:.0f}mm" if m else "—"
-                    col.markdown(f"""
-                    <div class="day-card">
-                        <div class="day-name">{day_names[d['date'].weekday()]}</div>
-                        <div class="day-date">{d['date'].strftime('%d/%m')}</div>
-                        <div class="day-icon">{icon}</div>
-                        <div class="day-prob" style="color:{color}">{p:.0%}</div>
-                        <div class="day-mm">{mm_str}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+        if is_trained():
+            st.caption(f"Model aktif · MD5: `{checksum()}`")
+            if st.button("Retrain Model"):
+                with st.spinner("Training…"):
+                    try:
+                        m = train(feat)
+                        st.success(f"Selesai — Acc: {m['accuracy']:.2%}  AUC: {m['roc_auc']:.3f}")
+                    except Exception as e:
+                        st.error(str(e))
         else:
-            # Single date prediction
-            feats = _infer_features_from_history(feat, target_date)
-            row   = _build_feature_row(target_date, feats)
+            if st.button("Train Model Sekarang", type="primary"):
+                with st.spinner("Training Gradient Boosting + Random Forest…"):
+                    try:
+                        m = train(feat)
+                        st.success(f"Training selesai! Acc: {m['accuracy']:.2%}  AUC: {m['roc_auc']:.3f}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
 
-            with st.spinner("Menganalisis pola historis…"):
-                try:
-                    prob, mm = predict(row)
-                except Exception as e:
-                    st.error(f"Prediksi gagal: {e}")
-                    st.stop()
+    # ── Data preview ──────────────────────────────────────────────────────
+    st.markdown('<div class="sec-label">Preview Data</div>', unsafe_allow_html=True)
+    stations = get_stations(feat)
+    pc1, pc2, pc3 = st.columns([2, 1.5, 1.5])
+    with pc1:
+        psel = st.multiselect("Stasiun", stations, default=stations, placeholder="Semua")
+    dmin, dmax = feat["date"].min().date(), feat["date"].max().date()
+    with pc2:
+        ps = st.date_input("Dari",   value=dmin, min_value=dmin, max_value=dmax, key="p_s")
+    with pc3:
+        pe = st.date_input("Sampai", value=dmax, min_value=dmin, max_value=dmax, key="p_e")
 
-            _render_result(target_date, prob, mm, inferred=feats)
-
-    # ══════════════════
-    # MANUAL MODE
-    # ══════════════════
-    else:
-        with st.form("manual_form"):
-            st.markdown('<div class="section-title">Kondisi Cuaca Saat Ini</div>', unsafe_allow_html=True)
-
-            r1c1, r1c2, r1c3 = st.columns(3)
-            target_date = r1c1.date_input(
-                "Tanggal prediksi",
-                value=datetime.date.today() + datetime.timedelta(days=1),
-            )
-            tavg = r1c2.number_input("Suhu Rata-rata (°C)", value=27.0, min_value=-5.0, max_value=50.0)
-            tn   = r1c2.number_input("Suhu Min (°C)",        value=22.0, min_value=-5.0, max_value=45.0)
-            tx   = r1c3.number_input("Suhu Max (°C)",        value=32.0, min_value=-5.0, max_value=55.0)
-            rh   = r1c3.number_input("Kelembapan (%)",       value=82.0, min_value=0.0,  max_value=100.0)
-
-            r2c1, r2c2, r2c3 = st.columns(3)
-            ss     = r2c1.number_input("Durasi Matahari (h)",   value=5.0, min_value=0.0, max_value=24.0)
-            ff_x   = r2c2.number_input("Kec. Angin Maks (m/s)", value=6.0, min_value=0.0, max_value=80.0)
-            ff_avg = r2c3.number_input("Kec. Angin Rata2 (m/s)",value=4.0, min_value=0.0, max_value=60.0)
-
-            st.markdown('<div class="section-title" style="margin-top:12px">Rata-rata 7 Hari Terakhir</div>', unsafe_allow_html=True)
-            r3c1, r3c2, r3c3 = st.columns(3)
-            rr_roll   = r3c1.number_input("Curah Hujan 7h (mm)",  value=5.0,  min_value=0.0)
-            tavg_roll = r3c2.number_input("Suhu Rata2 7h (°C)",   value=27.0, min_value=-5.0, max_value=50.0)
-            rh_roll   = r3c3.number_input("Kelembapan 7h (%)",    value=82.0, min_value=0.0,  max_value=100.0)
-
-            submitted = st.form_submit_button("Prediksi Sekarang", type="primary", use_container_width=True)
-
-        if not submitted:
-            st.stop()
-
-        feats = {
-            "Tn": tn, "Tx": tx, "Tavg": tavg, "RH_avg": rh,
-            "ss": ss, "ff_x": ff_x, "ff_avg": ff_avg,
-            "RR_roll7": rr_roll, "Tavg_roll7": tavg_roll, "RH_avg_roll7": rh_roll,
-        }
-        row = _build_feature_row(target_date, feats)
-
-        with st.spinner("Menjalankan inferensi…"):
-            try:
-                prob, mm = predict(row)
-            except Exception as e:
-                st.error(f"Prediksi gagal: {e}")
-                st.stop()
-
-        _render_result(target_date, prob, mm)
+    pf = filter_data(feat, station_ids=psel or None, date_start=str(ps), date_end=str(pe))
+    pcols = [c for c in ["date","station_id","Tn","Tx","Tavg","RH_avg","RR","ss"] if c in pf.columns]
+    st.dataframe(pf[pcols].head(1000), use_container_width=True, hide_index=True)
+    st.download_button("Download CSV", pf.to_csv(index=False).encode(), "filtered.csv", "text/csv")

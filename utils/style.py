@@ -1,300 +1,477 @@
-"""Global CSS — premium dark weather app aesthetic."""
+"""Global CSS — gamified weather app, immersive dark atmosphere."""
 
 import streamlit as st
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* ── Reset & base ── */
-*, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body, [data-testid="stAppViewContainer"] {
-    background: #060B14 !important;
-    color: #E8EEF4;
-    font-family: 'DM Sans', sans-serif;
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+    background: #030711 !important;
+    color: #E2E8F0;
+    font-family: 'Outfit', sans-serif;
 }
 
-/* Hide sidebar toggle & default sidebar */
+/* ── Kill sidebar & default nav ── */
 [data-testid="collapsedControl"],
-section[data-testid="stSidebar"] { display: none !important; }
+section[data-testid="stSidebar"],
+[data-testid="stToolbar"] { display: none !important; }
 
-/* Main container width */
+/* ── Main layout ── */
 .main .block-container {
-    max-width: 1180px;
-    padding: 2rem 2rem 4rem;
+    max-width: 1100px;
+    padding: 0 1.5rem 4rem;
     margin: 0 auto;
 }
 
-/* ── Header ── */
-.rf-header {
+/* ── Animated sky background ── */
+[data-testid="stAppViewContainer"]::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 80% 50% at 20% -10%, rgba(14,165,233,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 110%, rgba(99,102,241,0.08) 0%, transparent 60%),
+        #030711;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ── Top header bar ── */
+.rf-topbar {
     display: flex;
     align-items: center;
-    gap: 14px;
-    margin-bottom: 2.5rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid #0D1626;
+    justify-content: space-between;
+    padding: 1.25rem 0 1rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    position: relative;
+    z-index: 10;
 }
-.rf-header-dot {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    background: #38BDF8;
-    box-shadow: 0 0 12px #38BDF8;
-    animation: pulse 2s infinite;
-}
-@keyframes pulse {
-    0%,100% { box-shadow: 0 0 8px #38BDF8; }
-    50%      { box-shadow: 0 0 20px #38BDF8, 0 0 40px rgba(56,189,248,0.3); }
-}
-.rf-header h1 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: #E8EEF4;
-    margin: 0;
-}
-.rf-header span {
-    font-size: 0.8rem;
-    color: #4B6A8A;
-    font-weight: 400;
-    margin-left: 4px;
-}
-
-/* ── Nav tabs ── */
-.rf-nav {
+.rf-brand {
     display: flex;
-    gap: 4px;
-    margin-bottom: 2rem;
-    background: #0D1626;
-    padding: 4px;
-    border-radius: 10px;
-    width: fit-content;
+    align-items: center;
+    gap: 10px;
 }
-.rf-nav-btn {
-    padding: 7px 20px;
-    border-radius: 7px;
-    border: none;
-    background: transparent;
-    color: #4B6A8A;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
+.rf-brand-icon {
+    font-size: 1.4rem;
+    filter: drop-shadow(0 0 8px rgba(56,189,248,0.6));
+    animation: float 3s ease-in-out infinite;
 }
-.rf-nav-btn:hover   { color: #94A3B8; background: #131F32; }
-.rf-nav-btn.active  { background: #0EA5E9; color: #fff; }
+@keyframes float {
+    0%,100% { transform: translateY(0px); }
+    50%      { transform: translateY(-4px); }
+}
+.rf-brand-name {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #F1F5F9;
+}
+.rf-brand-sub {
+    font-size: 0.7rem;
+    color: #475569;
+    font-weight: 400;
+    margin-left: 2px;
+}
+.rf-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    color: #475569;
+}
+.rf-status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #22C55E;
+    box-shadow: 0 0 6px #22C55E;
+    animation: blink 2s infinite;
+}
+@keyframes blink {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+}
 
-/* ── Stat cards ── */
-.stat-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    margin-bottom: 2rem;
-}
-.stat-card {
-    background: #0D1626;
-    border: 1px solid #111D2E;
+/* ── Navigation pills ── */
+.rf-nav-wrap {
+    display: flex;
+    gap: 2px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
     border-radius: 12px;
-    padding: 18px 20px;
-    transition: border-color 0.2s;
+    padding: 3px;
+    width: fit-content;
+    margin-bottom: 2rem;
+    position: relative;
+    z-index: 10;
 }
-.stat-card:hover { border-color: #1E3A5F; }
-.stat-label {
-    font-size: 0.72rem;
+.rf-nav-pill {
+    padding: 7px 18px;
+    border-radius: 9px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #475569;
+    cursor: default;
+    letter-spacing: 0.01em;
+    transition: color 0.2s;
+}
+.rf-nav-pill.active {
+    background: linear-gradient(135deg, #0EA5E9, #6366F1);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(14,165,233,0.3);
+}
+
+/* ── Hide real nav buttons (use only as click triggers) ── */
+.nav-btn-row { margin-bottom: 2rem; }
+.nav-btn-row .stButton > button {
+    background: transparent !important;
+    border: none !important;
+    color: transparent !important;
+    height: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    pointer-events: none !important;
+}
+
+/* ── Hero weather card ── */
+.weather-hero {
+    background: linear-gradient(135deg,
+        rgba(14,165,233,0.12) 0%,
+        rgba(99,102,241,0.08) 50%,
+        rgba(3,7,17,0) 100%);
+    border: 1px solid rgba(14,165,233,0.15);
+    border-radius: 20px;
+    padding: 2rem 2.5rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+    overflow: hidden;
+}
+.weather-hero::before {
+    content: '';
+    position: absolute;
+    top: -50%; right: -20%;
+    width: 400px; height: 400px;
+    background: radial-gradient(circle, rgba(14,165,233,0.06) 0%, transparent 70%);
+    pointer-events: none;
+}
+.hero-date {
+    font-size: 0.7rem;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #4B6A8A;
+    letter-spacing: 0.12em;
+    color: #475569;
+    margin-bottom: 8px;
+}
+.hero-verdict {
+    font-size: 2.8rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
     margin-bottom: 6px;
 }
-.stat-value {
-    font-size: 1.6rem;
-    font-weight: 600;
-    color: #E8EEF4;
-    line-height: 1;
-    font-family: 'DM Mono', monospace;
-}
-.stat-sub {
-    font-size: 0.75rem;
-    color: #38BDF8;
-    margin-top: 4px;
-}
-
-/* ── Filter bar ── */
-.filter-bar {
-    background: #0D1626;
-    border: 1px solid #111D2E;
-    border-radius: 12px;
-    padding: 16px 20px;
+.hero-sub {
+    font-size: 0.9rem;
+    color: #64748B;
     margin-bottom: 1.5rem;
+}
+.hero-stats {
     display: flex;
-    align-items: center;
-    gap: 12px;
+    gap: 2rem;
     flex-wrap: wrap;
 }
-.filter-label {
-    font-size: 0.75rem;
-    color: #4B6A8A;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    white-space: nowrap;
+.hero-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
-
-/* ── Chart cards ── */
-.chart-card {
-    background: #0D1626;
-    border: 1px solid #111D2E;
-    border-radius: 12px;
-    padding: 4px;
-    margin-bottom: 16px;
-}
-
-/* ── Upload zone ── */
-[data-testid="stFileUploader"] {
-    background: #0D1626 !important;
-    border: 1px dashed #1E3A5F !important;
-    border-radius: 12px !important;
-}
-
-/* ── Streamlit widget overrides ── */
-[data-testid="stSelectbox"] > div > div,
-[data-testid="stMultiSelect"] > div > div {
-    background: #0D1626 !important;
-    border-color: #1E3A5F !important;
-    border-radius: 8px !important;
-}
-[data-testid="stDateInput"] input {
-    background: #0D1626 !important;
-    border-color: #1E3A5F !important;
-}
-.stButton > button {
-    background: #0EA5E9 !important;
-    color: #fff !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-weight: 500 !important;
-    padding: 0.5rem 1.5rem !important;
-    transition: background 0.15s !important;
-}
-.stButton > button:hover { background: #38BDF8 !important; }
-
-/* Secondary button */
-.stButton.secondary > button {
-    background: transparent !important;
-    border: 1px solid #1E3A5F !important;
-    color: #94A3B8 !important;
-}
-
-/* ── Prediction result ── */
-.pred-card {
-    background: linear-gradient(135deg, #0D1626 0%, #0A1628 100%);
-    border: 1px solid #1E3A5F;
-    border-radius: 16px;
-    padding: 28px 32px;
-    margin-top: 1.5rem;
-}
-.pred-verdict {
-    font-size: 1.75rem;
-    font-weight: 600;
-    letter-spacing: -0.03em;
-    margin-bottom: 4px;
-}
-.pred-date { font-size: 0.875rem; color: #4B6A8A; margin-bottom: 20px; }
-.pred-stats { display: flex; gap: 32px; margin-top: 16px; }
-.pred-stat-label { font-size: 0.7rem; text-transform: uppercase;
-    letter-spacing: 0.08em; color: #4B6A8A; }
-.pred-stat-value { font-size: 1.3rem; font-weight: 600;
-    font-family: 'DM Mono', monospace; color: #E8EEF4; }
-
-/* Progress bar */
-.prob-bar-wrap { margin: 16px 0 8px; }
-.prob-bar-bg {
-    height: 6px; background: #111D2E; border-radius: 99px; overflow: hidden;
-}
-.prob-bar-fill {
-    height: 100%; border-radius: 99px;
-    background: linear-gradient(90deg, #0284C7, #38BDF8);
-    transition: width 0.5s ease;
-}
-
-/* ── Alert badges ── */
-.badge { display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 500; }
-.badge-warn { background: rgba(234,179,8,0.12); color: #EAB308;
-    border: 1px solid rgba(234,179,8,0.25); }
-.badge-info { background: rgba(56,189,248,0.10); color: #38BDF8;
-    border: 1px solid rgba(56,189,248,0.25); }
-.badge-ok   { background: rgba(34,197,94,0.10); color: #22C55E;
-    border: 1px solid rgba(34,197,94,0.25); }
-
-/* ── Metrics ── */
-[data-testid="metric-container"] {
-    background: #0D1626 !important;
-    border: 1px solid #111D2E !important;
-    border-radius: 10px !important;
-    padding: 12px 16px !important;
-}
-
-/* ── Section title ── */
-.section-title {
-    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
-    color: #4B6A8A; margin-bottom: 12px; margin-top: 8px;
-}
-
-/* ── Mode description ── */
-.mode-desc {
-    background: #0D1626;
-    border: 1px solid #111D2E;
-    border-left: 3px solid #38BDF8;
-    border-radius: 0 8px 8px 0;
-    padding: 10px 16px;
-    font-size: 0.875rem;
-    color: #94A3B8;
-    margin-bottom: 1.5rem;
-}
-.mode-desc strong { color: #E8EEF4; }
-
-/* ── 7-day forecast strip ── */
-.day-card {
-    background: #0D1626;
-    border: 1px solid #111D2E;
-    border-radius: 12px;
-    padding: 14px 8px;
-    text-align: center;
-    transition: border-color 0.2s, transform 0.15s;
-}
-.day-card:hover {
-    border-color: #1E3A5F;
-    transform: translateY(-2px);
-}
-.day-name {
+.hero-stat-label {
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #4B6A8A;
-    margin-bottom: 2px;
+    color: #334155;
 }
-.day-date {
-    font-size: 0.8rem;
-    color: #94A3B8;
-    margin-bottom: 8px;
-    font-family: 'DM Mono', monospace;
-}
-.day-icon { font-size: 1.6rem; margin-bottom: 8px; }
-.day-prob {
-    font-size: 1rem;
+.hero-stat-val {
+    font-size: 1.1rem;
     font-weight: 600;
-    font-family: 'DM Mono', monospace;
-    margin-bottom: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #E2E8F0;
 }
-.day-mm {
-    font-size: 0.72rem;
-    color: #4B6A8A;
+.hero-icon {
+    position: absolute;
+    right: 2.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 5rem;
+    opacity: 0.15;
+    animation: float 4s ease-in-out infinite;
+    pointer-events: none;
 }
 
-/* Hide Streamlit footer */
-footer, #MainMenu { visibility: hidden; }
+/* ── Probability ring ── */
+.prob-ring-wrap {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+}
+.prob-ring-text { flex: 1; }
+.prob-ring-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #475569;
+    margin-bottom: 4px;
+}
+.prob-big {
+    font-size: 2.2rem;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+}
+.prob-label { font-size: 0.8rem; color: #64748B; margin-top: 2px; }
+
+/* ── Timeline (hourly forecast) ── */
+.timeline-wrap {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+}
+.timeline-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #475569;
+    margin-bottom: 1rem;
+}
+.timeline-bar {
+    display: flex;
+    gap: 3px;
+    align-items: flex-end;
+    height: 48px;
+    margin-bottom: 6px;
+}
+.timeline-hour {
+    flex: 1;
+    border-radius: 3px 3px 0 0;
+    transition: opacity 0.2s;
+    min-height: 3px;
+}
+.timeline-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6rem;
+    color: #334155;
+    font-family: 'JetBrains Mono', monospace;
+}
+.timeline-rain-window {
+    font-size: 0.8rem;
+    color: #38BDF8;
+    margin-top: 8px;
+    font-weight: 500;
+}
+
+/* ── 7-day strip ── */
+.week-strip {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    margin-bottom: 1.5rem;
+}
+.day-tile {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 12px 6px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+.day-tile.selected {
+    border-color: rgba(14,165,233,0.5);
+    background: rgba(14,165,233,0.08);
+    box-shadow: 0 0 20px rgba(14,165,233,0.1);
+}
+.day-tile:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-2px); }
+.day-tile-name {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #475569;
+    margin-bottom: 2px;
+}
+.day-tile-date {
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: #94A3B8;
+    margin-bottom: 6px;
+}
+.day-tile-icon { font-size: 1.4rem; margin-bottom: 4px; }
+.day-tile-prob {
+    font-size: 0.85rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+}
+.day-tile-mm { font-size: 0.6rem; color: #475569; margin-top: 1px; }
+
+/* ── KPI grid ── */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 1.5rem;
+}
+.kpi-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 14px;
+    padding: 16px 18px;
+    transition: border-color 0.2s;
+}
+.kpi-card:hover { border-color: rgba(14,165,233,0.2); }
+.kpi-label {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #334155;
+    margin-bottom: 6px;
+}
+.kpi-val {
+    font-size: 1.5rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: #F1F5F9;
+    line-height: 1;
+}
+.kpi-sub { font-size: 0.65rem; color: #38BDF8; margin-top: 3px; }
+
+/* ── Section label ── */
+.sec-label {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #334155;
+    margin: 1.5rem 0 0.75rem;
+}
+
+/* ── Alert banner ── */
+.alert-banner {
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 1rem;
+}
+.alert-rain  { background: rgba(14,165,233,0.08); border: 1px solid rgba(14,165,233,0.2); color: #38BDF8; }
+.alert-heavy { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.2);  color: #F87171; }
+.alert-clear { background: rgba(34,197,94,0.08);  border: 1px solid rgba(34,197,94,0.2);  color: #4ADE80; }
+.alert-maybe { background: rgba(234,179,8,0.08);  border: 1px solid rgba(234,179,8,0.2);  color: #FDE047; }
+
+/* ── Form inputs ── */
+[data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input {
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 8px !important;
+    color: #E2E8F0 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+}
+[data-testid="stSelectbox"] > div > div,
+[data-testid="stMultiSelect"] > div > div {
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 8px !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background: linear-gradient(135deg, #0EA5E9, #6366F1) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-family: 'Outfit', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    padding: 0.6rem 1.5rem !important;
+    transition: all 0.2s !important;
+    box-shadow: 0 4px 15px rgba(14,165,233,0.2) !important;
+}
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(14,165,233,0.35) !important;
+}
+
+/* ── Streamlit metric overrides ── */
+[data-testid="metric-container"] {
+    background: rgba(255,255,255,0.02) !important;
+    border: 1px solid rgba(255,255,255,0.05) !important;
+    border-radius: 12px !important;
+    padding: 12px 16px !important;
+}
+
+/* ── File uploader ── */
+[data-testid="stFileUploader"] {
+    background: rgba(255,255,255,0.02) !important;
+    border: 1px dashed rgba(14,165,233,0.3) !important;
+    border-radius: 12px !important;
+}
+
+/* ── Train progress ── */
+.train-banner {
+    background: linear-gradient(135deg, rgba(14,165,233,0.08), rgba(99,102,241,0.08));
+    border: 1px solid rgba(14,165,233,0.2);
+    border-radius: 14px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+.train-banner-title { font-size: 1.1rem; font-weight: 700; color: #38BDF8; margin-bottom: 4px; }
+.train-banner-sub   { font-size: 0.8rem; color: #475569; }
+
+/* ── Radar animation (decorative) ── */
+@keyframes radarSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+.radar-icon { animation: radarSpin 4s linear infinite; display: inline-block; }
+
+/* ── Dataframe ── */
+[data-testid="stDataFrame"] {
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+
+/* ── Hide streamlit chrome ── */
+footer, #MainMenu, [data-testid="stDecoration"] { display: none !important; }
+
+/* ── Radio buttons (mode switcher) ── */
+[data-testid="stRadio"] label {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 8px 16px !important;
+    font-size: 0.82rem !important;
+    transition: all 0.15s;
+    cursor: pointer;
+}
+[data-testid="stRadio"] label:has(input:checked) {
+    background: rgba(14,165,233,0.1);
+    border-color: rgba(14,165,233,0.3);
+    color: #38BDF8;
+}
 </style>
 """
 
@@ -303,69 +480,148 @@ def inject_css() -> None:
     st.markdown(CSS, unsafe_allow_html=True)
 
 
-def header() -> None:
-    st.markdown("""
-    <div class="rf-header">
-        <div class="rf-header-dot"></div>
-        <h1>Nusantara RainForecaster <span>Indonesia Weather Intelligence</span></h1>
+def topbar(model_ready: bool) -> None:
+    status_dot = '<div class="rf-status-dot"></div>' if model_ready else '<div class="rf-status-dot" style="background:#EF4444;box-shadow:0 0 6px #EF4444"></div>'
+    status_txt = "Model siap" if model_ready else "Model belum ditraining"
+    st.markdown(f"""
+    <div class="rf-topbar">
+        <div class="rf-brand">
+            <div class="rf-brand-icon">💧</div>
+            <div>
+                <div class="rf-brand-name">RainForecaster <span class="rf-brand-sub">Nusantara</span></div>
+            </div>
+        </div>
+        <div class="rf-status">
+            {status_dot}
+            <span>{status_txt}</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
 
-def stat_cards(records: int, rainy: int, avg_rain: float, avg_temp: float) -> None:
+def nav_pills(active: str) -> None:
+    tabs = ["Dashboard", "Forecast", "Data"]
+    pills = ""
+    for t in tabs:
+        cls = "rf-nav-pill active" if t == active else "rf-nav-pill"
+        pills += f'<div class="{cls}">{t}</div>'
+    st.markdown(f'<div class="rf-nav-wrap">{pills}</div>', unsafe_allow_html=True)
+
+
+def kpi_grid(records: int, rainy: int, avg_rain: float, avg_temp: float) -> None:
     rain_pct = rainy / records * 100 if records else 0
     st.markdown(f"""
-    <div class="stat-grid">
-        <div class="stat-card">
-            <div class="stat-label">Total Records</div>
-            <div class="stat-value">{records:,}</div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Total Data</div>
+            <div class="kpi-val">{records:,}</div>
+            <div class="kpi-sub">records</div>
         </div>
-        <div class="stat-card">
-            <div class="stat-label">Rainy Days</div>
-            <div class="stat-value">{rainy:,}</div>
-            <div class="stat-sub">{rain_pct:.1f}% of days</div>
+        <div class="kpi-card">
+            <div class="kpi-label">Hari Hujan</div>
+            <div class="kpi-val">{rainy:,}</div>
+            <div class="kpi-sub">{rain_pct:.1f}% dari total</div>
         </div>
-        <div class="stat-card">
-            <div class="stat-label">Avg Rainfall</div>
-            <div class="stat-value">{avg_rain:.1f}</div>
-            <div class="stat-sub">mm / day</div>
+        <div class="kpi-card">
+            <div class="kpi-label">Rata-rata Hujan</div>
+            <div class="kpi-val">{avg_rain:.1f}</div>
+            <div class="kpi-sub">mm / hari</div>
         </div>
-        <div class="stat-card">
-            <div class="stat-label">Avg Temperature</div>
-            <div class="stat-value">{avg_temp:.1f}</div>
-            <div class="stat-sub">°C</div>
+        <div class="kpi-card">
+            <div class="kpi-label">Rata-rata Suhu</div>
+            <div class="kpi-val">{avg_temp:.1f}</div>
+            <div class="kpi-sub">°C</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 
-def prediction_card(
-    date_str: str, prob: float, mm: float | None, intensity: str, verdict: str, color: str
+def weather_hero(
+    date_str: str, verdict: str, sub: str, prob: float,
+    mm: float | None, intensity: str, color: str, icon: str,
+    rain_window: dict
 ) -> None:
-    bar_w = int(prob * 100)
-    mm_str = f"{mm:.1f} mm" if mm is not None else "—"
+    bar_pct = int(prob * 100)
+    mm_str  = f"{mm:.1f} mm" if mm else "— mm"
+
+    # Build hourly timeline (24 bars)
+    bars_html = ""
+    rain_start = int(rain_window.get("start", "99:00")[:2]) if rain_window.get("start") else 99
+    rain_end   = int(rain_window.get("end", "00:00")[:2])   if rain_window.get("end")   else 0
+    rain_peak  = int(rain_window.get("peak", "00:00")[:2])  if rain_window.get("peak")  else 0
+
+    for h in range(24):
+        in_rain = rain_start <= h < rain_end
+        is_peak = h == rain_peak
+        if is_peak:
+            height = 100
+            bg = color
+        elif in_rain:
+            frac = 1 - abs(h - rain_peak) / max(1, (rain_end - rain_start))
+            height = max(20, int(frac * 85))
+            bg = f"rgba(56,189,248,{0.3 + frac*0.4:.2f})"
+        else:
+            height = 5
+            bg = "rgba(255,255,255,0.04)"
+        bars_html += f'<div class="timeline-hour" style="height:{height}%;background:{bg}"></div>'
+
+    window_text = rain_window.get("description", "Tidak ada estimasi")
+
     st.markdown(f"""
-    <div class="pred-card">
-        <div class="pred-verdict" style="color:{color}">{verdict}</div>
-        <div class="pred-date">{date_str}</div>
-        <div class="prob-bar-wrap">
-            <div class="prob-bar-bg">
-                <div class="prob-bar-fill" style="width:{bar_w}%;
-                     background:linear-gradient(90deg,{color}88,{color});"></div>
+    <div class="weather-hero">
+        <div class="hero-icon">{icon}</div>
+        <div class="hero-date">{date_str}</div>
+        <div class="hero-verdict" style="color:{color}">{verdict}</div>
+        <div class="hero-sub">{sub}</div>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="hero-stat-label">Probabilitas</div>
+                <div class="hero-stat-val">{bar_pct}%</div>
             </div>
-        </div>
-        <div style="font-size:.75rem;color:#4B6A8A;margin-bottom:4px;">
-            Rain probability: {prob:.0%}
-        </div>
-        <div class="pred-stats">
-            <div>
-                <div class="pred-stat-label">Estimated Rainfall</div>
-                <div class="pred-stat-value">{mm_str}</div>
+            <div class="hero-stat">
+                <div class="hero-stat-label">Estimasi Volume</div>
+                <div class="hero-stat-val">{mm_str}</div>
             </div>
-            <div>
-                <div class="pred-stat-label">Intensity</div>
-                <div class="pred-stat-value" style="font-size:1rem">{intensity}</div>
+            <div class="hero-stat">
+                <div class="hero-stat-label">Intensitas</div>
+                <div class="hero-stat-val">{intensity}</div>
             </div>
         </div>
     </div>
+    <div class="timeline-wrap">
+        <div class="timeline-title">Estimasi Waktu Hujan (24 Jam)</div>
+        <div class="timeline-bar">{bars_html}</div>
+        <div class="timeline-labels">
+            <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
+        </div>
+        <div class="timeline-rain-window">⏱ {window_text}</div>
+    </div>
     """, unsafe_allow_html=True)
+
+
+def week_strip(days: list, selected_idx: int) -> None:
+    day_names = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
+    tiles = ""
+    for i, d in enumerate(days):
+        p    = d["prob"]
+        m    = d["mm"]
+        icon = "🌧️" if p >= 0.65 else ("⛈️" if p >= 0.8 else ("🌦️" if p >= 0.35 else "☀️"))
+        col  = "#38BDF8" if p >= 0.65 else ("#FDE047" if p >= 0.35 else "#4ADE80")
+        mm_s = f"{m:.0f}mm" if m else "—"
+        sel  = "selected" if i == selected_idx else ""
+        tiles += f"""
+        <div class="day-tile {sel}">
+            <div class="day-tile-name">{day_names[d['date'].weekday()]}</div>
+            <div class="day-tile-date">{d['date'].strftime('%d/%m')}</div>
+            <div class="day-tile-icon">{icon}</div>
+            <div class="day-tile-prob" style="color:{col}">{p:.0%}</div>
+            <div class="day-tile-mm">{mm_s}</div>
+        </div>"""
+    st.markdown(f'<div class="week-strip">{tiles}</div>', unsafe_allow_html=True)
+
+
+def alert_banner(cls: str, icon: str, text: str) -> None:
+    st.markdown(
+        f'<div class="alert-banner {cls}"><span>{icon}</span><span>{text}</span></div>',
+        unsafe_allow_html=True
+    )
