@@ -422,31 +422,6 @@ section[data-testid="stSidebar"],
     padding: 12px 16px !important;
 }
 
-/* ── Nav button overlay — transparan tapi clickable ── */
-.nav-btn-overlay {
-    position: relative;
-    margin-top: -2.8rem;   /* naik ke atas, overlapping pills */
-    margin-bottom: 2rem;
-    z-index: 20;
-}
-.nav-btn-overlay .stButton > button {
-    background: transparent !important;
-    border: none !important;
-    color: transparent !important;
-    box-shadow: none !important;
-    height: 36px !important;
-    padding: 0 !important;
-    min-height: 0 !important;
-    opacity: 0 !important;          /* invisible tapi tetap bisa diklik */
-    cursor: pointer !important;
-    pointer-events: all !important;
-}
-.nav-btn-overlay .stButton > button:hover {
-    transform: none !important;
-    box-shadow: none !important;
-    background: transparent !important;
-}
-
 /* ── File uploader ── */
 [data-testid="stFileUploader"] {
     background: rgba(255,255,255,0.02) !important;
