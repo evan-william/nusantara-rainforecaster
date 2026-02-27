@@ -38,21 +38,21 @@ Rain timing estimates use **real BMKG climatology logic** based on sunshine dura
 
 ## Features
 
-### 🔮 Smart Mode (7-Day Forecast Strip)
+### Smart Mode (7-Day Forecast Strip)
 - Visual 7-day tile strip showing rain probability and estimated mm for each day
 - Click any day tile or pick a custom date — prediction updates instantly
 - Features inferred from historical monthly medians with realistic daily variation
 - Rain timing derived from `ss` + `RH_avg` + BMKG seasonal patterns
 
-### 🛠️ Manual Mode
+### Manual Mode
 - Enter all conditions manually: `Tavg`, `Tn`, `Tx`, `RH_avg`, `ss`, wind speeds, and 7-day rolling averages
 - Same ML model, full user control over inputs
 
-### 📊 Dashboard
+### Dashboard
 - KPI metrics: total records, rainy days, avg rainfall, avg temperature
 - Charts: daily rainfall bar, temperature band (min/avg/max), humidity vs rainfall scatter, monthly heatmap, rain probability by month — all interactive via Plotly
 
-### 🤖 AI Model
+### AI Model
 - **Classifier**: GradientBoostingClassifier — predicts probability of rain (`RR > 0.5 mm`)
 - **Regressor**: RandomForestRegressor — estimates rainfall volume (mm) on rainy days
 - Auto-trains on startup from `data/weather_data.csv` with joblib caching
