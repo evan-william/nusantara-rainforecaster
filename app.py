@@ -172,7 +172,8 @@ topbar(is_trained())
 
 nav_pills(st.session_state.tab)
 
-# Invisible real buttons overlaid (hack: use st.columns with zero-height buttons)
+# Real buttons hidden via CSS — overlaid on top of the pill strip
+st.markdown('<div class="nav-btn-overlay">', unsafe_allow_html=True)
 _nc1, _nc2, _nc3, _ = st.columns([1, 1, 1, 6])
 with _nc1:
     if st.button("Dashboard", key="nav_d", use_container_width=True):
@@ -183,6 +184,7 @@ with _nc2:
 with _nc3:
     if st.button("Data", key="nav_data", use_container_width=True):
         st.session_state.tab = "Data"; st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -203,7 +205,7 @@ if st.session_state.tab == "Forecast":
     # ── Mode selector ──────────────────────────────────────────────────────
     st.markdown('<div class="sec-label">Mode Prediksi</div>', unsafe_allow_html=True)
     mode = st.radio(
-        "mode", ["Smart Mode", "Manual Mode"],
+        "mode", ["🔮  Smart Mode", "🛠  Manual Mode"],
         horizontal=True, label_visibility="collapsed"
     )
 
