@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="Nusantara RainForecaster" width="600"/>
+<img src="assets/rainfore-logo.jpg" alt="Nusantara RainForecaster" width="600"/>
 
 # Nusantara RainForecaster
 
