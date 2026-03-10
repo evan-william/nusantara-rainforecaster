@@ -11,7 +11,7 @@
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-1.6.0-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-[Features](#features) · [Live Demo](#-try-it-live) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Contributing](#contributing)
+[Features](#features) · [Live Demo](https://nusantara-rainforecaster.streamlit.app/) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Contributing](#contributing)
 
 </div>
 
