@@ -19,7 +19,7 @@ from utils.charts import (
     rain_probability_by_month, rainfall_bar, temp_band,
 )
 from utils.style import (
-    alert_banner, inject_css, kpi_grid, nav_pills,
+    alert_banner, inject_css, kpi_grid,
     topbar, weather_hero, week_strip,
 )
 
@@ -170,19 +170,17 @@ def _run_forecast(target_date: datetime.date):
 # ── Header & Nav ────────────────────────────────────────────────────────────
 topbar(is_trained())
 
-nav_pills(st.session_state.tab)
-
-# Invisible real buttons overlaid (hack: use st.columns with zero-height buttons)
-_nc1, _nc2, _nc3, _ = st.columns([1, 1, 1, 6])
-with _nc1:
-    if st.button("Dashboard", key="nav_d", use_container_width=True):
-        st.session_state.tab = "Dashboard"; st.rerun()
-with _nc2:
-    if st.button("Forecast", key="nav_f", use_container_width=True):
-        st.session_state.tab = "Forecast"; st.rerun()
-with _nc3:
-    if st.button("Data", key="nav_data", use_container_width=True):
-        st.session_state.tab = "Data"; st.rerun()
+_nav_options = ["Forecast", "Dashboard", "Data"]
+_nav = st.segmented_control(
+    "Navigasi utama",
+    _nav_options,
+    default=st.session_state.tab,
+    label_visibility="collapsed",
+    key="primary_navigation",
+)
+if _nav and _nav != st.session_state.tab:
+    st.session_state.tab = _nav
+    st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

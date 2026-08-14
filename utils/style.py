@@ -57,8 +57,7 @@ section[data-testid="stSidebar"],
 }
 .rf-brand-icon {
     font-size: 1.4rem;
-    filter: drop-shadow(0 0 8px rgba(56,189,248,0.6));
-    animation: float 3s ease-in-out infinite;
+    filter: drop-shadow(0 0 6px rgba(56,189,248,0.35));
 }
 @keyframes float {
     0%,100% { transform: translateY(0px); }
@@ -88,7 +87,6 @@ section[data-testid="stSidebar"],
     border-radius: 50%;
     background: #22C55E;
     box-shadow: 0 0 6px #22C55E;
-    animation: blink 2s infinite;
 }
 @keyframes blink {
     0%,100% { opacity: 1; }
@@ -119,7 +117,7 @@ section[data-testid="stSidebar"],
     transition: color 0.2s;
 }
 .rf-nav-pill.active {
-    background: linear-gradient(135deg, #0EA5E9, #6366F1);
+    background: #0EA5E9;
     color: #fff;
     box-shadow: 0 2px 12px rgba(14,165,233,0.3);
 }
@@ -140,12 +138,9 @@ section[data-testid="stSidebar"],
 
 /* ── Hero weather card ── */
 .weather-hero {
-    background: linear-gradient(135deg,
-        rgba(14,165,233,0.12) 0%,
-        rgba(99,102,241,0.08) 50%,
-        rgba(3,7,17,0) 100%);
+    background: #08111F;
     border: 1px solid rgba(14,165,233,0.15);
-    border-radius: 20px;
+    border-radius: 12px;
     padding: 2rem 2.5rem;
     margin-bottom: 1.5rem;
     position: relative;
@@ -207,7 +202,6 @@ section[data-testid="stSidebar"],
     transform: translateY(-50%);
     font-size: 5rem;
     opacity: 0.15;
-    animation: float 4s ease-in-out infinite;
     pointer-events: none;
 }
 
@@ -289,7 +283,7 @@ section[data-testid="stSidebar"],
 .day-tile {
     background: rgba(255,255,255,0.02);
     border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 14px;
+    border-radius: 10px;
     padding: 12px 6px;
     text-align: center;
     cursor: pointer;
@@ -302,7 +296,7 @@ section[data-testid="stSidebar"],
     background: rgba(14,165,233,0.08);
     box-shadow: 0 0 20px rgba(14,165,233,0.1);
 }
-.day-tile:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-2px); }
+.day-tile:hover { border-color: rgba(56,189,248,0.35); }
 .day-tile-name {
     font-size: 0.6rem;
     text-transform: uppercase;
@@ -334,7 +328,7 @@ section[data-testid="stSidebar"],
 .kpi-card {
     background: rgba(255,255,255,0.02);
     border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 14px;
+    border-radius: 10px;
     padding: 16px 18px;
     transition: border-color 0.2s;
 }
@@ -398,7 +392,7 @@ section[data-testid="stSidebar"],
 
 /* ── Buttons ── */
 .stButton > button {
-    background: linear-gradient(135deg, #0EA5E9, #6366F1) !important;
+    background: #0EA5E9 !important;
     color: #fff !important;
     border: none !important;
     border-radius: 10px !important;
@@ -407,11 +401,22 @@ section[data-testid="stSidebar"],
     font-size: 0.875rem !important;
     padding: 0.6rem 1.5rem !important;
     transition: all 0.2s !important;
-    box-shadow: 0 4px 15px rgba(14,165,233,0.2) !important;
+    box-shadow: none !important;
 }
 .stButton > button:hover {
-    transform: translateY(-1px) !important;
-    box-shadow: 0 6px 20px rgba(14,165,233,0.35) !important;
+    background: #0284C7 !important;
+    box-shadow: none !important;
+}
+.stButton > button:focus-visible,
+[data-testid="stNumberInput"] input:focus-visible,
+[data-testid="stDateInput"] input:focus-visible {
+    outline: 2px solid #7DD3FC !important;
+    outline-offset: 2px !important;
+}
+[data-testid="stBaseButton-secondary"] {
+    background: #0B1422 !important;
+    border: 1px solid rgba(148,163,184,0.18) !important;
+    color: #CBD5E1 !important;
 }
 
 /* ── Streamlit metric overrides ── */
@@ -431,7 +436,7 @@ section[data-testid="stSidebar"],
 
 /* ── Train progress ── */
 .train-banner {
-    background: linear-gradient(135deg, rgba(14,165,233,0.08), rgba(99,102,241,0.08));
+    background: #08111F;
     border: 1px solid rgba(14,165,233,0.2);
     border-radius: 14px;
     padding: 1.25rem 1.5rem;
@@ -471,6 +476,32 @@ footer, #MainMenu, [data-testid="stDecoration"] { display: none !important; }
     background: rgba(14,165,233,0.1);
     border-color: rgba(14,165,233,0.3);
     color: #38BDF8;
+}
+
+@media (max-width: 760px) {
+    .main .block-container { padding: 0 1rem 3rem; }
+    .rf-brand-sub { display: none; }
+    .weather-hero { padding: 1.35rem; }
+    .hero-verdict { font-size: 2rem; }
+    .hero-icon { right: 1rem; font-size: 3.5rem; }
+    .hero-stats { gap: 1rem; }
+    .week-strip { grid-template-columns: repeat(4, 1fr); }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 460px) {
+    .week-strip { grid-template-columns: repeat(2, 1fr); }
+    .kpi-grid { grid-template-columns: 1fr; }
+    .hero-stat-val { font-size: 0.95rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 </style>
 """
@@ -605,7 +636,7 @@ def week_strip(days: list, selected_idx: int) -> None:
     for i, d in enumerate(days):
         p    = d["prob"]
         m    = d["mm"]
-        icon = "🌧️" if p >= 0.65 else ("⛈️" if p >= 0.8 else ("🌦️" if p >= 0.35 else "☀️"))
+        icon = "⛈️" if p >= 0.8 else ("🌧️" if p >= 0.65 else ("🌦️" if p >= 0.35 else "☀️"))
         col  = "#38BDF8" if p >= 0.65 else ("#FDE047" if p >= 0.35 else "#4ADE80")
         mm_s = f"{m:.0f}mm" if m else "—"
         sel  = "selected" if i == selected_idx else ""

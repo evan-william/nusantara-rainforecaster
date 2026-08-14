@@ -28,7 +28,7 @@ VALID_RANGES = {
     "ddd_x":  (0,   360),
 }
 
-MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 def load_csv(source) -> pd.DataFrame:
@@ -38,6 +38,8 @@ def load_csv(source) -> pd.DataFrame:
             raw = pd.read_csv(source, low_memory=False)
         elif hasattr(source, "read"):
             content = source.read()
+            if len(content) > MAX_UPLOAD_BYTES:
+                raise ValueError("CSV exceeds the 50 MB upload limit")
             if isinstance(content, bytes):
                 content = content.decode("utf-8", errors="replace")
             raw = pd.read_csv(io.StringIO(content), low_memory=False)
@@ -55,7 +57,8 @@ def _clean(df: pd.DataFrame) -> pd.DataFrame:
 
     missing = REQUIRED_COLUMNS - set(df.columns)
     if missing:
-        raise ValueError(f"Missing required columns: {missing}")
+        missing_list = ", ".join(sorted(missing))
+        raise ValueError(f"missing required columns: {missing_list}")
 
     # Try multiple date formats — BMKG uses DD-MM-YYYY
     for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
@@ -93,6 +96,15 @@ def _clean(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values("date").reset_index(drop=True)
 
 
+def _validate_and_clean(df: pd.DataFrame) -> pd.DataFrame:
+    """Validate and normalize an already-loaded weather dataframe.
+
+    Kept as a public compatibility entry point for callers that load data
+    outside :func:`load_csv`. All validation still lives in one place.
+    """
+    return _clean(df)
+
+
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["year"]        = df["date"].dt.year
@@ -122,6 +134,14 @@ def get_stations(df: pd.DataFrame) -> list[str]:
 # Backwards-compat alias
 def get_station_list(df: pd.DataFrame) -> list[str]:
     return get_stations(df)
+
+
+def load_sample_data() -> pd.DataFrame:
+    """Load the bundled BMKG-format dataset used by the demo pages."""
+    sample_path = Path(__file__).with_name("weather_data.csv")
+    if not sample_path.exists():
+        raise FileNotFoundError(f"Sample data not found at {sample_path}")
+    return load_csv(sample_path)
 
 
 def filter_data(

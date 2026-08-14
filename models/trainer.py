@@ -14,7 +14,6 @@ import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, mean_absolute_error, r2_score, roc_auc_score
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -23,8 +22,12 @@ logger = logging.getLogger(__name__)
 MODEL_DIR = Path(__file__).parent / "cache"
 MODEL_DIR.mkdir(exist_ok=True)
 
-CLF_PATH  = MODEL_DIR / "rain_classifier.joblib"
-REG_PATH  = MODEL_DIR / "rain_regressor.joblib"
+CLASSIFIER_PATH = MODEL_DIR / "rain_classifier.joblib"
+REGRESSOR_PATH  = MODEL_DIR / "rain_regressor.joblib"
+
+# Backwards-compatible constants for older integrations.
+CLF_PATH = CLASSIFIER_PATH
+REG_PATH = REGRESSOR_PATH
 DATA_PATH = Path(__file__).parent.parent / "data" / "weather_data.csv"
 
 FEATURE_COLS = [
@@ -34,10 +37,10 @@ FEATURE_COLS = [
 ]
 
 
-def _clf_pipe() -> Pipeline:
+def _build_classifier() -> Pipeline:
     return Pipeline([
-        ("imp",   SimpleImputer(strategy="median")),
-        ("scl",   StandardScaler()),
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler",  StandardScaler()),
         ("model", GradientBoostingClassifier(
             n_estimators=200, max_depth=4,
             learning_rate=0.05, subsample=0.8, random_state=42,
@@ -45,10 +48,10 @@ def _clf_pipe() -> Pipeline:
     ])
 
 
-def _reg_pipe() -> Pipeline:
+def _build_regressor() -> Pipeline:
     return Pipeline([
-        ("imp",   SimpleImputer(strategy="median")),
-        ("scl",   StandardScaler()),
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler",  StandardScaler()),
         ("model", RandomForestRegressor(
             n_estimators=200, max_depth=8,
             min_samples_leaf=5, random_state=42, n_jobs=-1,
@@ -61,38 +64,64 @@ def train(df: pd.DataFrame) -> dict:
     if len(avail) < 6:
         raise ValueError(f"Not enough feature columns. Found: {avail}")
 
-    X   = df[avail]
-    y_c = (df["RR"] > 0.5).astype(int)
+    ordered = df.sort_values("date") if "date" in df.columns else df.copy()
+    X   = ordered[avail]
+    y_c = (ordered["RR"] > 0.5).astype(int)
 
-    X_tr, X_te, y_tr, y_te = train_test_split(
-        X, y_c, test_size=0.2, random_state=42, stratify=y_c
-    )
+    if y_c.nunique() < 2:
+        raise ValueError("Training data must contain both rainy and dry observations")
 
-    clf = _clf_pipe()
+    split_at = max(1, int(len(X) * 0.8))
+    if split_at >= len(X):
+        raise ValueError("At least two observations are required for training")
+    X_tr, X_te = X.iloc[:split_at], X.iloc[split_at:]
+    y_tr, y_te = y_c.iloc[:split_at], y_c.iloc[split_at:]
+
+    clf = _build_classifier()
     clf.fit(X_tr, y_tr)
     acc = accuracy_score(y_te, clf.predict(X_te))
-    auc = roc_auc_score(y_te, clf.predict_proba(X_te)[:, 1])
+    auc = (
+        roc_auc_score(y_te, clf.predict_proba(X_te)[:, 1])
+        if y_te.nunique() > 1 else float("nan")
+    )
 
-    metrics = {"accuracy": float(acc), "roc_auc": float(auc), "features": avail, "rows": len(df)}
+    metrics = {
+        "accuracy": float(acc),
+        "roc_auc": float(auc),
+        "classifier_accuracy": float(acc),
+        "classifier_roc_auc": float(auc),
+        "features": avail,
+        "rows": len(df),
+        "evaluation": "chronological 80/20 holdout",
+    }
 
-    rain_mask = df["RR"] > 0.5
+    rain_mask = ordered["RR"] > 0.5
     if rain_mask.sum() > 50:
         X_r = X[rain_mask]
-        y_r = df.loc[rain_mask, "RR"]
-        X_rtr, X_rte, y_rtr, y_rte = train_test_split(X_r, y_r, test_size=0.2, random_state=42)
-        reg = _reg_pipe()
+        y_r = ordered.loc[rain_mask, "RR"]
+        rain_split = max(1, int(len(X_r) * 0.8))
+        X_rtr, X_rte = X_r.iloc[:rain_split], X_r.iloc[rain_split:]
+        y_rtr, y_rte = y_r.iloc[:rain_split], y_r.iloc[rain_split:]
+        reg = _build_regressor()
         reg.fit(X_rtr, y_rtr)
         metrics["mae"] = float(mean_absolute_error(y_rte, reg.predict(X_rte)))
         metrics["r2"]  = float(r2_score(y_rte, reg.predict(X_rte)))
-        joblib.dump(reg, REG_PATH, compress=3)
+        metrics["regressor_mae"] = metrics["mae"]
+        metrics["regressor_r2"] = metrics["r2"]
+        reg.fit(X_r, y_r)
+        joblib.dump(reg, REGRESSOR_PATH, compress=3)
     else:
         metrics["mae"] = None
         metrics["r2"]  = None
+        metrics["regressor_mae"] = None
+        metrics["regressor_r2"] = None
 
-    joblib.dump(clf, CLF_PATH, compress=3)
+    clf.fit(X, y_c)
+    joblib.dump(clf, CLASSIFIER_PATH, compress=3)
     try:
-        CLF_PATH.chmod(0o600)
-        REG_PATH.chmod(0o600)
+        CLASSIFIER_PATH.chmod(0o600)
+        if REGRESSOR_PATH.exists():
+            REGRESSOR_PATH.chmod(0o600)
     except Exception:
         pass
 
@@ -107,25 +136,26 @@ def _load(path: Path):
 
 
 def predict(row: pd.DataFrame) -> Tuple[float, Optional[float]]:
-    clf = _load(CLF_PATH)
+    clf = _load(CLASSIFIER_PATH)
     if clf is None:
         raise RuntimeError("Model not trained yet.")
 
-    avail = [c for c in FEATURE_COLS if c in row.columns]
-    X     = row[avail]
+    trained_features = list(getattr(clf, "feature_names_in_", FEATURE_COLS))
+    X = row.reindex(columns=trained_features)
     prob  = float(clf.predict_proba(X)[:, 1][0])
 
     mm = None
     if prob > 0.5:
-        reg = _load(REG_PATH)
+        reg = _load(REGRESSOR_PATH)
         if reg is not None:
-            mm = max(0.0, float(reg.predict(X)[0]))
+            reg_features = list(getattr(reg, "feature_names_in_", trained_features))
+            mm = max(0.0, float(reg.predict(row.reindex(columns=reg_features))[0]))
 
     return prob, mm
 
 
 def auto_train_if_needed() -> Optional[dict]:
-    if CLF_PATH.exists():
+    if CLASSIFIER_PATH.exists():
         return None
     if not DATA_PATH.exists():
         logger.warning("weather_data.csv not found at %s", DATA_PATH)
@@ -140,16 +170,31 @@ def auto_train_if_needed() -> Optional[dict]:
 
 
 def is_trained() -> bool:
-    return CLF_PATH.exists()
+    return CLASSIFIER_PATH.exists()
+
+
+def models_exist() -> bool:
+    """Return whether the required classifier artifact is available."""
+    return is_trained()
 
 
 def checksum() -> Optional[str]:
-    if not CLF_PATH.exists():
+    if not CLASSIFIER_PATH.exists():
         return None
     h = hashlib.md5()
-    with open(CLF_PATH, "rb") as f:
+    with open(CLASSIFIER_PATH, "rb") as f:
         h.update(f.read())
     return h.hexdigest()
+
+
+def get_model_checksum() -> Optional[str]:
+    """Compatibility wrapper used by the original multi-page interface."""
+    return checksum()
+
+
+# Compatibility aliases for integrations that imported the earlier builders.
+_clf_pipe = _build_classifier
+_reg_pipe = _build_regressor
 
 
 def get_monthly_stats(df: pd.DataFrame) -> dict:
