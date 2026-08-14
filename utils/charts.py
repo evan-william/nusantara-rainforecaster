@@ -132,3 +132,68 @@ def _empty(msg: str) -> go.Figure:
         x=0.5, y=0.5, showarrow=False, font=dict(size=14, color="#4B5563"))
     fig.update_layout(**_BASE)
     return fig
+
+
+def rainfall_timeseries(df: pd.DataFrame, station_id: str | None = None) -> go.Figure:
+    """Compatibility chart for the original dashboard interface."""
+    if station_id is not None and not df.empty and "station_id" in df.columns:
+        df = df[df["station_id"] == station_id]
+    return rainfall_bar(df)
+
+
+def temperature_trend(df: pd.DataFrame) -> go.Figure:
+    return temp_band(df)
+
+
+def monthly_rain_heatmap(df: pd.DataFrame) -> go.Figure:
+    return heatmap_monthly(df)
+
+
+def humidity_scatter(df: pd.DataFrame) -> go.Figure:
+    return humidity_vs_rain(df)
+
+
+def wind_rose(df: pd.DataFrame) -> go.Figure:
+    """Build a wind-direction distribution without requiring wind speed."""
+    required = {"ddd_x"}
+    if df.empty or not required.issubset(df.columns):
+        return _empty("No wind direction data")
+
+    wind = df.dropna(subset=["ddd_x"]).copy()
+    if wind.empty:
+        return _empty("No wind direction data")
+
+    bins = list(range(0, 361, 45))
+    labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    normalized = (wind["ddd_x"] % 360 + 22.5) % 360
+    wind["direction"] = pd.cut(
+        normalized,
+        bins=bins,
+        labels=labels,
+        include_lowest=True,
+        right=False,
+    )
+    counts = wind["direction"].value_counts(sort=False).reindex(labels, fill_value=0)
+    fig = go.Figure(go.Barpolar(
+        r=counts.values,
+        theta=counts.index,
+        marker_color=_ACC,
+        marker_line_color="#7DD3FC",
+        marker_line_width=1,
+        opacity=0.82,
+        hovertemplate="%{theta}: %{r} observations<extra></extra>",
+    ))
+    fig.update_layout(
+        title="Wind Direction Distribution",
+        polar=dict(
+            bgcolor=_BG,
+            radialaxis=dict(gridcolor=_GRID, showticklabels=False),
+            angularaxis=dict(gridcolor=_GRID, direction="clockwise", rotation=90),
+        ),
+        **{k: v for k, v in _BASE.items() if k not in {"xaxis", "yaxis"}},
+    )
+    return fig
+
+
+def _empty_fig(msg: str) -> go.Figure:
+    return _empty(msg)

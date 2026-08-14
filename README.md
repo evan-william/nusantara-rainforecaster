@@ -1,257 +1,131 @@
 <div align="center">
 
-<img src="assets/rainfore-logo.jpg" alt="Nusantara RainForecaster" width="600"/>
+<img src="assets/rainfore-logo.jpg" alt="Nusantara RainForecaster" width="600" />
 
 # Nusantara RainForecaster
 
-**AI-powered Indonesia rainfall prediction — built with Streamlit & scikit-learn**
+An explainable rainfall-estimation prototype for Indonesian weather data, built with Streamlit and scikit-learn.
 
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.32+-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.6.0-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-
-[Features](#features) · [Live Demo](https://nusantara-rainforecaster.streamlit.app/) · [Quick Start](#quick-start) · [Architecture](#architecture) · [Contributing](#contributing)
+[Live demo](https://nusantara-rainforecaster.streamlit.app/) · [Quick start](#quick-start) · [Model design](#model-design) · [Data contract](#data-contract)
 
 </div>
 
----
+## Why this project exists
 
-## 🌧️ Try It Live
+Nusantara RainForecaster turns BMKG-format historical observations into an interactive ML workflow. It lets users explore station-level weather patterns, compare rainy and dry periods, and test rainfall scenarios without working directly in notebooks.
 
-> **[nusantara-rainforecaster.streamlit.app](https://nusantara-rainforecaster.streamlit.app/)**
-> No install needed, runs fully in your browser.
+The product has three workspaces:
 
----
+- **Forecast** — compare a seven-day historical-pattern scenario or enter weather conditions manually.
+- **Dashboard** — filter stations and dates, then inspect rainfall, temperature, humidity, and seasonal patterns.
+- **Data** — preview validated records, retrain the models, inspect the active model checksum, and export filtered data.
 
-## What is this?
+> Smart Mode is a scenario estimate based on historical monthly conditions and deterministic daily variation. It does not ingest live weather observations and should not be treated as an operational weather forecast or safety alert.
 
-Nusantara RainForecaster is a gamified weather web app that analyzes historical Indonesian weather data (BMKG format) and predicts rainfall probability using a **Gradient Boosting classifier** and **Random Forest regressor**. It features three modes:
+## Product highlights
 
-- **Smart Mode** — pick any of the next 7 days and get an instant AI prediction using historical median values for that month, automatically inferred from your data.
-- **Manual Mode** — enter today's exact conditions (temperature, humidity, sunshine, wind) for a fully custom prediction.
-- **Dashboard** — explore historical trends across stations and date ranges.
+- Responsive Indonesian-language interface with accessible focus states and reduced-motion support.
+- Deterministic seven-day scenarios: the same target date produces the same inferred conditions.
+- Manual prediction workflow for temperature, humidity, sunshine, wind, and rolling weather features.
+- Interactive Plotly views for daily rainfall, temperature range, monthly rainfall, humidity, and wind direction.
+- CSV schema validation, physical-range checks, station-ID sanitisation, and a 50 MB upload limit.
+- Cached model artifacts with checksum-based visibility in the UI.
+- Compatibility layer for the original multi-page interface and the current single-page product.
+- Automated coverage for loading, feature engineering, filtering, model training, inference, and chart generation.
 
-Rain timing estimates use **real BMKG climatology logic** based on sunshine duration (`ss`), humidity (`RH_avg`), total rainfall (`RR`), and seasonal patterns — not random guesses.
+## Model design
 
----
+The application uses two scikit-learn pipelines:
 
-## Features
+| Task | Model | Output |
+|---|---|---|
+| Rain classification | Gradient Boosting classifier | Probability that rainfall exceeds 0.5 mm |
+| Rainfall regression | Random Forest regressor | Estimated rainfall volume for likely rainy conditions |
 
-### Smart Mode (7-Day Forecast Strip)
-- Visual 7-day tile strip showing rain probability and estimated mm for each day
-- Click any day tile or pick a custom date — prediction updates instantly
-- Features inferred from historical monthly medians with realistic daily variation
-- Rain timing derived from `ss` + `RH_avg` + BMKG seasonal patterns
+Both pipelines include median imputation and feature scaling. Evaluation uses a chronological 80/20 holdout so later observations are tested against earlier training data. After metrics are calculated, the deployable models are fit again on the complete validated dataset.
 
-### Manual Mode
-- Enter all conditions manually: `Tavg`, `Tn`, `Tx`, `RH_avg`, `ss`, wind speeds, and 7-day rolling averages
-- Same ML model, full user control over inputs
+Features include temperature, humidity, sunshine duration, wind speed, cyclical month/day encodings, and shifted seven-day rolling weather statistics. Shifted rolling features prevent the target day from leaking into its own historical context.
 
-### Dashboard
-- KPI metrics: total records, rainy days, avg rainfall, avg temperature
-- Charts: daily rainfall bar, temperature band (min/avg/max), humidity vs rainfall scatter, monthly heatmap, rain probability by month — all interactive via Plotly
+The rain-window estimate is a deterministic heuristic informed by probability, estimated rainfall, sunshine duration, humidity, and wet/dry-season context. It is presented separately from the learned model output.
 
-### AI Model
-- **Classifier**: GradientBoostingClassifier — predicts probability of rain (`RR > 0.5 mm`)
-- **Regressor**: RandomForestRegressor — estimates rainfall volume (mm) on rainy days
-- Auto-trains on startup from `data/weather_data.csv` with joblib caching
-- Model identified by MD5 checksum; retrain anytime from the Data tab
-
-### Rain Timing Estimation (BMKG-based)
-| Condition | Rain Type |
-|---|---|
-| `ss = 0` jam | Sepanjang hari, mulai 06:00 |
-| `ss < 2` jam atau `RH ≥ 90%` | Pagi orografik, ~07:00–09:00 |
-| `ss 2–4` jam + musim hujan | Siang, ~11:00–14:00 |
-| `RH ≥ 90%` + musim hujan | Siang-sore, ~12:00–15:00 |
-| `ss 4–10` jam (default) | **Konvektif sore (paling umum)**, ~13:00–15:00 |
-
-Durasi dihitung dari `RR` (mm) ÷ intensitas BMKG per kategori (ringan/sedang/lebat/sangat lebat/ekstrem).
-
-### Security
-- Uploaded files validated for size (50 MB cap) and schema before parsing
-- Station IDs sanitised against a whitelist
-- Numeric columns range-clamped to physical bounds; corrupt values → NaN
-- Model files written with `chmod 0600`
-- XSRF protection enabled in `.streamlit/config.toml`
-- No user data persisted between sessions
-
----
-
-## Quick Start
-
-### 1. Clone & install
+## Quick start
 
 ```bash
-git clone https://github.com/your-username/nusantara-rainforecaster.git
+git clone https://github.com/evan-william/nusantara-rainforecaster.git
 cd nusantara-rainforecaster
 
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+
 pip install -r requirements.txt
-```
-
-### 2. Add your data
-
-Place your BMKG-format CSV at `data/weather_data.csv`. The app will auto-train the model on first launch.
-
-Or use the helper to generate synthetic sample data:
-
-```bash
-python data/generate_sample.py
-```
-
-### 3. Run
-
-```bash
 streamlit run app.py
 ```
 
-Or use the helper script:
+The repository includes `data/weather_data.csv`. If model artifacts are absent, the application trains them during startup and stores them under `models/cache/`.
 
-```bash
-chmod +x run.sh
-./run.sh all    # install → generate data → tests → launch app
-```
+## Data contract
 
-The model trains automatically on first run and caches to `models/cache/`. Subsequent launches load the cache instantly.
+Required CSV columns:
 
----
-
-## Using Your Own Data
-
-CSV must include these columns at minimum:
-
-| Column | Description |
-|--------|-------------|
-| `date` | `DD-MM-YYYY` or `YYYY-MM-DD` |
-| `Tn` | Min temperature (°C) |
-| `Tx` | Max temperature (°C) |
-| `Tavg` | Avg temperature (°C) |
-| `RH_avg` | Avg humidity (%) |
+| Column | Meaning |
+|---|---|
+| `date` | Observation date (`DD-MM-YYYY`, `DD/MM/YYYY`, or `YYYY-MM-DD`) |
+| `Tn` | Minimum temperature (°C) |
+| `Tx` | Maximum temperature (°C) |
+| `Tavg` | Average temperature (°C) |
+| `RH_avg` | Average relative humidity (%) |
 | `RR` | Rainfall (mm) |
-| `station_id` | Station identifier |
+| `station_id` | Weather-station identifier |
 
-Optional but recommended (improve model accuracy and rain timing estimates):
+Optional columns improve scenario detail: `ss` (sunshine duration), `ff_x` (maximum wind speed), `ff_avg` (average wind speed), and `ddd_x` (wind direction).
 
-| Column | Description |
-|--------|-------------|
-| `ss` | Sunshine duration (hours/day) — used for rain timing |
-| `ff_x` | Max wind speed (m/s) |
-| `ff_avg` | Avg wind speed (m/s) |
-| `ddd_x` | Wind direction at max speed (°) |
+Invalid dates are dropped, non-numeric values are coerced to missing values, and measurements outside configured physical bounds are excluded from model inputs. Validation decisions are logged rather than silently hidden.
 
----
+## Project structure
 
-## Retraining the Model
-
-After updating `data/weather_data.csv`, retrain from the **Data tab → Retrain Model**, or via CLI:
-
-```bash
-python -c "
-from data.loader import load_csv, engineer_features
-from models.trainer import train
-df = engineer_features(load_csv('data/weather_data.csv'))
-m = train(df)
-print('Done:', m)
-"
-```
-
-Then commit the updated cache:
-
-```bash
-git add models/cache/rain_classifier.joblib models/cache/rain_regressor.joblib
-git commit -m "retrain model"
-git push
-```
-
-> **Note:** Pin your scikit-learn version in `requirements.txt` (e.g. `scikit-learn==1.6.0`) to ensure the cached `.joblib` is compatible across environments.
-
----
-
-## Running Tests
-
-```bash
-pytest                                          # all tests
-pytest tests/test_loader.py                    # single file
-pytest --cov=. --cov-report=term-missing       # with coverage
-```
-
----
-
-## Architecture
-
-```
-nusantara-rainforecaster/
-├── app.py                      # Entry point, page routing, Smart/Manual mode
-├── run.sh                      # Dev helper (setup / test / launch)
-├── requirements.txt
-├── pytest.ini
-│
-├── .streamlit/
-│   └── config.toml             # Theme, XSRF, upload limits
-│
+```text
+.
+├── app.py                 # Current Streamlit product and navigation
 ├── data/
-│   ├── loader.py               # CSV parsing, validation, feature engineering
-│   ├── weather_data.csv        # Your BMKG data goes here
-│   └── generate_sample.py      # Synthetic dataset generator
-│
+│   ├── loader.py          # Validation, cleaning, and feature engineering
+│   └── weather_data.csv   # Bundled BMKG-format dataset
 ├── models/
-│   ├── trainer.py              # Pipeline builders, train(), predict(),
-│   │                           # estimate_rain_hours() (BMKG logic)
-│   └── cache/
-│       ├── rain_classifier.joblib
-│       └── rain_regressor.joblib
-│
+│   ├── trainer.py         # Training, evaluation, persistence, and inference
+│   └── cache/             # Serialized model artifacts
+├── pages/                 # Compatibility views from the original interface
 ├── utils/
-│   ├── charts.py               # Plotly figure builders
-│   └── style.py                # CSS injection, UI components
-│
-├── tests/
-│   ├── test_loader.py
-│   ├── test_trainer.py
-│   └── test_charts.py
-│
-└── assets/
-    └── rainfore-logo.jpg
+│   ├── charts.py          # Plotly figure builders
+│   └── style.py           # Product components and responsive styling
+└── tests/                 # Loader, model, and visualization tests
 ```
 
----
+## Verification
 
-## Tech Stack
+```bash
+pytest -q
+python -m compileall -q app.py data models pages utils
+```
 
-| Layer | Library |
-|-------|---------|
-| Web UI | Streamlit 1.32+ |
-| ML — Classification | GradientBoostingClassifier (scikit-learn 1.6.0) |
-| ML — Regression | RandomForestRegressor (scikit-learn 1.6.0) |
-| Data Processing | Pandas, NumPy |
-| Visualisation | Plotly |
-| Model Persistence | joblib |
-| Testing | pytest, pytest-cov |
+Current local verification: **32 tests passing**, plus a Streamlit `AppTest` smoke run with no application exceptions.
 
----
+## Known limitations
+
+- No live BMKG API or nowcasting feed is connected.
+- Predictions are station-agnostic unless station context is reflected in the supplied features.
+- Model quality depends on the coverage and cleanliness of the bundled dataset.
+- Rain-window timing is heuristic, not a separately trained temporal model.
+- This prototype is not intended for disaster response, aviation, or other safety-critical decisions.
 
 ## Roadmap
 
-- [ ] BMKG API integration for live feature pulling
-- [ ] Multi-step ahead forecasting (3-day outlook)
-- [ ] API endpoint (FastAPI) for headless predictions
-- [ ] Model versioning and comparison UI
-- [ ] Dockerised deployment
-
----
-
-## Contributing
-
-1. Fork the repository.
-2. Create a branch: `git checkout -b feature/your-feature`.
-3. Make changes and add tests.
-4. Run `pytest` — all tests must pass.
-5. Open a pull request with a clear description.
-
----
+- Connect a live, documented weather-data source.
+- Add station-aware encoding and spatial validation.
+- Track experiments and model versions outside serialized joblib files.
+- Add calibration and drift monitoring.
+- Expose a versioned inference API.
 
 ## License
 
